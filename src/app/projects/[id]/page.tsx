@@ -204,26 +204,80 @@ export default function ProjectDetailPage() {
               Extract support drawings from source DWG and create a new DWG.
             </p>
 
-            {/* Input DWG path */}
+            {/* Input DWG file */}
             <div style={{ marginBottom: "var(--space-4)" }}>
-              <label style={labelStyle}>Input DWG Path</label>
-              <input
-                value={inputDwg}
-                onChange={(e) => setInputDwg(e.target.value)}
-                placeholder="C:\Projects\source-drawing.dwg"
-                style={inputStyle}
-              />
+              <label style={labelStyle}>Input DWG File</label>
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <input
+                  value={inputDwg}
+                  onChange={(e) => setInputDwg(e.target.value)}
+                  placeholder="Select source .dwg file"
+                  style={{ ...inputStyle, flex: 1 }}
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const [handle] = await (window as any).showOpenFilePicker({
+                        types: [{ description: "DWG Files", accept: { "application/acad": [".dwg"] } }],
+                        multiple: false,
+                      })
+                      setInputDwg(handle.name)
+                    } catch {
+                      // User cancelled or API not supported — fallback to manual input
+                      const path = prompt("Enter input DWG file path:")
+                      if (path) setInputDwg(path)
+                    }
+                  }}
+                  style={{
+                    height: 40, padding: "0 var(--space-4)",
+                    fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600,
+                    color: "var(--color-primary)", background: "var(--color-primary-soft)",
+                    border: "1px solid var(--color-primary)", borderRadius: "var(--radius-md)",
+                    cursor: "pointer", whiteSpace: "nowrap",
+                  }}
+                >
+                  Browse
+                </button>
+              </div>
             </div>
 
-            {/* Output DWG path */}
+            {/* Output DWG folder */}
             <div style={{ marginBottom: "var(--space-4)" }}>
-              <label style={labelStyle}>Output DWG Path</label>
-              <input
-                value={outputDwg}
-                onChange={(e) => setOutputDwg(e.target.value)}
-                placeholder="C:\Projects\output-supports.dwg"
-                style={inputStyle}
-              />
+              <label style={labelStyle}>Output DWG Folder</label>
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <input
+                  value={outputDwg}
+                  onChange={(e) => setOutputDwg(e.target.value)}
+                  placeholder="Select output folder"
+                  style={{ ...inputStyle, flex: 1 }}
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const handle = await (window as any).showDirectoryPicker()
+                      setOutputDwg(handle.name)
+                    } catch {
+                      const path = prompt("Enter output folder path:")
+                      if (path) setOutputDwg(path)
+                    }
+                  }}
+                  style={{
+                    height: 40, padding: "0 var(--space-4)",
+                    fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600,
+                    color: "var(--color-primary)", background: "var(--color-primary-soft)",
+                    border: "1px solid var(--color-primary)", borderRadius: "var(--radius-md)",
+                    cursor: "pointer", whiteSpace: "nowrap",
+                  }}
+                >
+                  Browse
+                </button>
+              </div>
             </div>
 
             {/* Support type dropdown */}
