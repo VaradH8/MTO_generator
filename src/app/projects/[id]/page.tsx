@@ -3,6 +3,9 @@
 import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useProjects } from "@/context/ProjectContext"
+import { useSupportContext } from "@/context/SupportContext"
+import { generatePDF } from "@/lib/generatePDF"
+import { generateZip } from "@/lib/generateZip"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import EmptyState from "@/components/EmptyState"
@@ -11,8 +14,50 @@ export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
   const { projects } = useProjects()
+  const { groupedSupports, currentProjectId, currentProjectName, loaded } = useSupportContext()
 
   const project = projects.find((p) => p.id === params.id)
+
+  // PDFs are available if the persisted context belongs to this project
+  const hasPdfs = loaded && currentProjectId === params.id && !!groupedSupports && Object.keys(groupedSupports).length > 0
+  const pdfTypes = hasPdfs ? Object.entries(groupedSupports!) : []
+
+  const [pdfStatus, setPdfStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
+  const [zipping, setZipping] = useState(false)
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleDownloadPDF = async (type: string) => {
+    setPdfStatus((s) => ({ ...s, [type]: "downloading" }))
+    try {
+      const blob = await generatePDF(type, groupedSupports![type], currentProjectName)
+      triggerDownload(blob, `${type}-supports.pdf`)
+      setPdfStatus((s) => ({ ...s, [type]: "ready" }))
+    } catch {
+      setPdfStatus((s) => ({ ...s, [type]: "error" }))
+    }
+  }
+
+  const handleDownloadAll = async () => {
+    setZipping(true)
+    try {
+      const pdfs = await Promise.all(
+        pdfTypes.map(async ([type, rows]) => ({
+          name: `${type}-supports`,
+          blob: await generatePDF(type, rows, currentProjectName),
+        }))
+      )
+      triggerDownload(await generateZip(pdfs), "support-pdfs.zip")
+    } catch { /* silently */ }
+    finally { setZipping(false) }
+  }
 
   // AutoCAD Run popup state
   const [showRunPopup, setShowRunPopup] = useState(false)
@@ -139,6 +184,39 @@ export default function ProjectDetailPage() {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Generated PDFs */}
+      {hasPdfs && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)", flexWrap: "wrap", gap: "var(--space-3)" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>Generated PDFs</h2>
+            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+              <ActionButton variant="secondary" size="sm" loading={zipping} onClick={handleDownloadAll}>
+                {zipping ? "Preparing..." : "Download All as ZIP"}
+              </ActionButton>
+              <ActionButton variant="ghost" size="sm" onClick={() => router.push("/output")}>
+                Open PDF Page
+              </ActionButton>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            {pdfTypes.map(([type, rows]) => (
+              <div key={type} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-3) var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)" }}>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)", flex: 1 }}>{type}</span>
+                <StatusBadge variant="info">{rows.length} supports</StatusBadge>
+                <ActionButton
+                  variant="primary"
+                  size="sm"
+                  loading={pdfStatus[type] === "downloading"}
+                  onClick={() => handleDownloadPDF(type)}
+                >
+                  {pdfStatus[type] === "downloading" ? "Generating..." : pdfStatus[type] === "error" ? "Retry" : "Download PDF"}
+                </ActionButton>
+              </div>
+            ))}
           </div>
         </div>
       )}
