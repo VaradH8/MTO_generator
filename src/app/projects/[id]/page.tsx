@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useProjects } from "@/context/ProjectContext"
 import ActionButton from "@/components/ActionButton"
@@ -13,12 +14,20 @@ export default function ProjectDetailPage() {
 
   const project = projects.find((p) => p.id === params.id)
 
+  // AutoCAD Run popup state
+  const [showRunPopup, setShowRunPopup] = useState(false)
+  const [inputDwg, setInputDwg] = useState("")
+  const [outputDwg, setOutputDwg] = useState("")
+  const [selectedType, setSelectedType] = useState("")
+  const [running, setRunning] = useState(false)
+
   if (!project) {
     return <EmptyState title="Project not found" message="This project doesn't exist." action={{ label: "Go to Projects", onClick: () => router.push("/projects") }} />
   }
 
   const uploads = project.uploads || []
   const activity = (project.activityLog || []).slice().reverse()
+  const types = project.supportTypes || []
 
   // Stats
   const allKeys = new Set<string>()
@@ -27,13 +36,21 @@ export default function ProjectDetailPage() {
     for (const k of (u.supportKeys || [])) allKeys.add(k)
     totalRevisions += u.revisions || 0
   }
-
-  // Type breakdown
   const typeCount: Record<string, number> = {}
-  for (const u of uploads) {
-    for (const t of u.types) {
-      typeCount[t] = (typeCount[t] || 0) + 1
-    }
+  for (const u of uploads) { for (const t of u.types) { typeCount[t] = (typeCount[t] || 0) + 1 } }
+
+  const handleRunConfirm = () => {
+    setRunning(true)
+    // This is where the AutoCAD plugin will be triggered
+    // For now, simulate with an alert
+    setTimeout(() => {
+      alert(`AutoCAD Plugin Triggered:\n\nInput DWG: ${inputDwg}\nOutput DWG: ${outputDwg}\nSupport Type: ${selectedType}\n\nPlugin not connected yet — this will call the AutoCAD API when integrated.`)
+      setRunning(false)
+      setShowRunPopup(false)
+      setInputDwg("")
+      setOutputDwg("")
+      setSelectedType("")
+    }, 500)
   }
 
   const cardStyle: React.CSSProperties = {
@@ -45,13 +62,16 @@ export default function ProjectDetailPage() {
     borderRadius: "var(--radius-md)", padding: "var(--space-4) var(--space-5)",
     boxShadow: "var(--shadow-sm)", flex: "1 1 0", minWidth: 100,
   }
-
-  const acadBtnStyle: React.CSSProperties = {
-    display: "flex", alignItems: "center", gap: "var(--space-3)",
-    padding: "var(--space-4) var(--space-5)", background: "var(--color-surface-2)",
-    border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)",
-    fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 500,
-    color: "var(--color-text)", cursor: "pointer", width: "100%", textAlign: "left" as const,
+  const inputStyle: React.CSSProperties = {
+    width: "100%", height: 40, padding: "0 var(--space-3)",
+    fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)",
+    background: "var(--color-surface)", border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-md)", outline: "none",
+  }
+  const labelStyle: React.CSSProperties = {
+    display: "block", fontFamily: "var(--font-display)", fontSize: "0.75rem",
+    fontWeight: 500, color: "var(--color-text-muted)", textTransform: "uppercase",
+    letterSpacing: "0.02em", marginBottom: "var(--space-1)",
   }
 
   return (
@@ -63,7 +83,7 @@ export default function ProjectDetailPage() {
 
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-4)", marginBottom: "var(--space-2)", flexWrap: "wrap" }}>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 700, color: "var(--color-text)" }}>{project.clientName}</h1>
-        <StatusBadge variant="info">{project.supportTypes.length} types</StatusBadge>
+        <StatusBadge variant="info">{types.length} types</StatusBadge>
         <StatusBadge variant="info">{uploads.length} uploads</StatusBadge>
       </div>
       <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)", marginBottom: "var(--space-6)" }}>
@@ -73,7 +93,12 @@ export default function ProjectDetailPage() {
       {/* Quick actions */}
       <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-6)", flexWrap: "wrap" }}>
         <ActionButton variant="primary" onClick={() => router.push(`/upload?project=${project.id}`)}>Upload Excel</ActionButton>
-        <ActionButton variant="secondary" onClick={() => router.push("/projects")}>Configure Types</ActionButton>
+        <ActionButton variant="secondary" onClick={() => setShowRunPopup(true)}
+          iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5 3l8 5-8 5V3z" fill="currentColor" /></svg>}
+        >
+          Run AutoCAD
+        </ActionButton>
+        <ActionButton variant="ghost" onClick={() => router.push("/projects")}>Configure Types</ActionButton>
       </div>
 
       {/* Stats */}
@@ -96,7 +121,7 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Type breakdown — simple bar chart */}
+      {/* Type breakdown bar chart */}
       {Object.keys(typeCount).length > 0 && (
         <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>Support Types</h2>
@@ -117,19 +142,6 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
-
-      {/* AutoCAD */}
-      <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
-        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>AutoCAD Integration</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "var(--space-3)" }}>
-          {["Run Script", "Export to AutoCAD", "Sync from AutoCAD", "Generate DWG"].map((label) => (
-            <button key={label} style={acadBtnStyle} onClick={() => alert(`${label} — plugin not connected yet`)}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 12l4-8 4 8M4 8h4M12 4v8M10 6h4" stroke="var(--color-primary)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* Upload History */}
       <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
@@ -165,6 +177,89 @@ export default function ProjectDetailPage() {
                 <span style={{ fontFamily: "var(--font-body)", color: "var(--color-text-faint)", marginLeft: "auto" }}>{a.user}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── AutoCAD Run Popup ─── */}
+      {showRunPopup && (
+        <div
+          className="animate-fade-in"
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300 }}
+          onClick={() => !running && setShowRunPopup(false)}
+        >
+          <div
+            className="animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--color-surface)", borderRadius: "var(--radius-lg)",
+              padding: "var(--space-8)", boxShadow: "var(--shadow-xl)",
+              maxWidth: 500, width: "90%",
+            }}
+          >
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-2)" }}>
+              Run AutoCAD Plugin
+            </h2>
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)", marginBottom: "var(--space-6)" }}>
+              Extract support drawings from source DWG and create a new DWG.
+            </p>
+
+            {/* Input DWG path */}
+            <div style={{ marginBottom: "var(--space-4)" }}>
+              <label style={labelStyle}>Input DWG Path</label>
+              <input
+                value={inputDwg}
+                onChange={(e) => setInputDwg(e.target.value)}
+                placeholder="C:\Projects\source-drawing.dwg"
+                style={inputStyle}
+              />
+            </div>
+
+            {/* Output DWG path */}
+            <div style={{ marginBottom: "var(--space-4)" }}>
+              <label style={labelStyle}>Output DWG Path</label>
+              <input
+                value={outputDwg}
+                onChange={(e) => setOutputDwg(e.target.value)}
+                placeholder="C:\Projects\output-supports.dwg"
+                style={inputStyle}
+              />
+            </div>
+
+            {/* Support type dropdown */}
+            <div style={{ marginBottom: "var(--space-6)" }}>
+              <label style={labelStyle}>Support Type to Extract</label>
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                style={{ ...inputStyle, cursor: "pointer" }}
+              >
+                <option value="">Select type...</option>
+                {types.map((t) => (
+                  <option key={t.typeName} value={t.typeName}>{t.typeName}</option>
+                ))}
+                {/* Also show types from uploads if not in config */}
+                {Object.keys(typeCount).filter((t) => !types.some((tc) => tc.typeName === t)).map((t) => (
+                  <option key={t} value={t}>{t} (from uploads)</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
+              <ActionButton variant="ghost" onClick={() => setShowRunPopup(false)} disabled={running}>
+                Cancel
+              </ActionButton>
+              <ActionButton
+                variant="primary"
+                loading={running}
+                disabled={!inputDwg.trim() || !outputDwg.trim() || !selectedType}
+                onClick={handleRunConfirm}
+                iconLeft={!running ? <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5 3l8 5-8 5V3z" fill="currentColor" /></svg> : undefined}
+              >
+                {running ? "Running..." : "Confirm & Run"}
+              </ActionButton>
+            </div>
           </div>
         </div>
       )}
