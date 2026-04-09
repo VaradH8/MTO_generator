@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python \"d:/support-pdf-generator/.claude/skills/bmad-init/scripts/bmad_init.py\" load --project-root \"d:/support-pdf-generator\" --all)",
+      "Bash(python \"d:/support-pdf-generator/.claude/skills/bmad-init/scripts/bmad_init.py\" load --project-root \"d:/support-pdf-generator\" --module bmm)",
+      "Bash(python \"d:/support-pdf-generator/.claude/skills/bmad-init/scripts/bmad_init.py\" load --project-root \"d:/support-pdf-generator\" --module bmm --all)",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-git)",
+      "Bash(mkdir -p /tmp/spg-backup)",
+      "Bash(mv design-artifacts:*)",
+      "Bash(npm install:*)",
+      "Bash(npx next:*)",
+      "Bash(npm run:*)",
+      "Bash(curl -sL -o SpaceGrotesk-Regular.ttf \"https://fonts.gstatic.com/s/spacegrotesk/v16/V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqUtEw.ttf\")",
+      "Bash(curl -sL -o SpaceGrotesk-Bold.ttf \"https://fonts.gstatic.com/s/spacegrotesk/v16/V8mDoQDjQSkFtoMM3T6r8E7mPbF4Cvk0HqUtEw.ttf\")",
+      "Bash(curl -sL -o JosefinSans-Regular.ttf \"https://fonts.gstatic.com/s/josefinsans/v32/Qw3PZQNVED7rKGKxtqIqX5E-AVSJrOCfjY46_DjQbMZhKSbpUVzEEQ.ttf\")",
+      "Bash(curl -sL -o JosefinSans-Bold.ttf \"https://fonts.gstatic.com/s/josefinsans/v32/Qw3PZQNVED7rKGKxtqIqX5E-AVSJrOCfjY46_DjQbMbhLybpUVzEEQ.ttf\")",
+      "Bash(ls -la *.ttf)",
+      "Bash(curl -sL -o SpaceGrotesk-Regular.ttf \"https://github.com/nickhudkins/googlefonts/raw/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf\")",
+      "Bash(curl -sL -o SpaceGrotesk-Regular.ttf \"https://github.com/floriankarsten/space-grotesk/raw/master/fonts/ttf/SpaceGrotesk-Regular.ttf\")",
+      "Bash(curl -sL -o SpaceGrotesk-Bold.ttf \"https://github.com/floriankarsten/space-grotesk/raw/master/fonts/ttf/SpaceGrotesk-Bold.ttf\")",
+      "Bash(curl -sL -o JosefinSans-Regular.ttf \"https://github.com/google/fonts/raw/main/ofl/josefinsans/static/JosefinSans-Regular.ttf\")",
+      "Bash(curl -sL -o JosefinSans-Bold.ttf \"https://github.com/google/fonts/raw/main/ofl/josefinsans/static/JosefinSans-Bold.ttf\")",
+      "Bash(xxd)",
+      "Bash(curl -sL -A \"Mozilla/4.0\" -o SpaceGrotesk-Regular.ttf \"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400\")",
+      "Bash(curl -sL -A \"Mozilla/4.0\" \"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700\")"
+    ],
+    "additionalDirectories": [
+      "d:\\support-pdf-generator\\src\\app\\projects"
+    ]
+  }
+}
