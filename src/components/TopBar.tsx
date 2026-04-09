@@ -18,13 +18,15 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
         gap: "var(--space-3)",
         padding: "var(--space-3) var(--space-6)",
         borderBottom: "1px solid var(--color-border)",
+        boxShadow: "var(--shadow-sm)",
         background: "var(--color-surface)",
         position: "sticky",
         top: 0,
         zIndex: 200,
+        width: "100%",
       }}
     >
-      {/* Hamburger — mobile only */}
+      {/* Hamburger (mobile) / spacer (desktop) */}
       {onMenuToggle && (
         <button
           onClick={onMenuToggle}
