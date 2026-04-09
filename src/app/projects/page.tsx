@@ -17,6 +17,7 @@ export default function ProjectsPage() {
   const [newClientName, setNewClientName] = useState("")
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [deleteInput, setDeleteInput] = useState("")
   const [editTypes, setEditTypes] = useState<SupportTypeConfig[]>([])
   const [saveError, setSaveError] = useState("")
 
@@ -171,12 +172,21 @@ export default function ProjectsPage() {
                   {!isActive && <ActionButton variant="secondary" size="sm" onClick={() => setActiveProjectId(project.id)}>Set Active</ActionButton>}
                   <ActionButton variant="secondary" size="sm" onClick={() => startEdit(project.id)}>Configure</ActionButton>
                   {confirmDelete === project.id ? (
-                    <>
-                      <ActionButton variant="destructive" size="sm" onClick={() => { deleteProject(project.id); setConfirmDelete(null) }}>Delete</ActionButton>
-                      <ActionButton variant="ghost" size="sm" onClick={() => setConfirmDelete(null)}>Cancel</ActionButton>
-                    </>
+                    <div className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)" }}>Type "delete" to confirm:</span>
+                      <input
+                        value={deleteInput}
+                        onChange={(e) => setDeleteInput(e.target.value)}
+                        placeholder="delete"
+                        autoFocus
+                        style={{ width: 80, height: 28, padding: "0 var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text)", background: "var(--color-surface)", border: "1px solid var(--color-error)", borderRadius: "var(--radius-sm)", outline: "none" }}
+                        onKeyDown={(e) => { if (e.key === "Enter" && deleteInput.toLowerCase() === "delete") { deleteProject(project.id); setConfirmDelete(null); setDeleteInput("") } if (e.key === "Escape") { setConfirmDelete(null); setDeleteInput("") } }}
+                      />
+                      <ActionButton variant="destructive" size="sm" disabled={deleteInput.toLowerCase() !== "delete"} onClick={() => { deleteProject(project.id); setConfirmDelete(null); setDeleteInput("") }}>Confirm</ActionButton>
+                      <ActionButton variant="ghost" size="sm" onClick={() => { setConfirmDelete(null); setDeleteInput("") }}>Cancel</ActionButton>
+                    </div>
                   ) : (
-                    <ActionButton variant="ghost" size="sm" onClick={() => setConfirmDelete(project.id)}>Delete</ActionButton>
+                    <ActionButton variant="ghost" size="sm" onClick={() => { setConfirmDelete(project.id); setDeleteInput("") }}>Delete</ActionButton>
                   )}
                 </div>
               )}
