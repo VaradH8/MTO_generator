@@ -1,49 +1,96 @@
 "use client"
 
+import { useMemo } from "react"
 import type { SupportRow } from "@/types/support"
 import EditableCell from "./EditableCell"
 
 interface ColumnDef {
-  key: keyof SupportRow
+  key: string
   label: string
   minWidth: number
   align: "left" | "center"
   type: "text" | "number"
   readOnly?: boolean
-  /** Always show as editable cell, even when value exists */
   alwaysEditable?: boolean
+  getValue: (row: SupportRow) => string
 }
 
-const COLUMNS: ColumnDef[] = [
-  { key: "supportTagName", label: "Support Tag Name", minWidth: 160, align: "left", type: "text" },
-  { key: "discipline", label: "Discipline", minWidth: 100, align: "left", type: "text" },
-  { key: "type", label: "Type", minWidth: 100, align: "left", type: "text" },
-  { key: "a", label: "A", minWidth: 56, align: "center", type: "number" },
-  { key: "b", label: "B", minWidth: 56, align: "center", type: "number" },
-  { key: "c", label: "C", minWidth: 56, align: "center", type: "number" },
-  { key: "d", label: "D", minWidth: 56, align: "center", type: "number" },
-  { key: "total", label: "Total (A+B+C+D)", minWidth: 80, align: "center", type: "number", readOnly: true },
-  { key: "item01Name", label: "Item-01 Name", minWidth: 140, align: "left", type: "text" },
-  { key: "item01Qty", label: "Item-01 Qty", minWidth: 72, align: "center", type: "number" },
-  { key: "item02Name", label: "Item-02 Name", minWidth: 140, align: "left", type: "text" },
-  { key: "item02Qty", label: "Item-02 Qty", minWidth: 72, align: "center", type: "number" },
-  { key: "item03Name", label: "Item-03 Name", minWidth: 140, align: "left", type: "text" },
-  { key: "item03Qty", label: "Item-03 Qty", minWidth: 72, align: "center", type: "number" },
-  { key: "x", label: "X", minWidth: 64, align: "center", type: "number", alwaysEditable: true },
-  { key: "y", label: "Y", minWidth: 64, align: "center", type: "number", alwaysEditable: true },
-  { key: "z", label: "Z", minWidth: 64, align: "center", type: "number", alwaysEditable: true },
-  { key: "xGrid", label: "X-Grid", minWidth: 80, align: "left", type: "text" },
-  { key: "yGrid", label: "Y-Grid", minWidth: 80, align: "left", type: "text" },
-  { key: "remarks", label: "Remarks", minWidth: 200, align: "left", type: "text" },
+/** Fixed columns before items */
+const PRE_ITEM_COLS: ColumnDef[] = [
+  { key: "supportTagName", label: "Support Tag Name", minWidth: 160, align: "left", type: "text", getValue: (r) => r.supportTagName },
+  { key: "discipline", label: "Discipline", minWidth: 100, align: "left", type: "text", getValue: (r) => r.discipline },
+  { key: "type", label: "Type", minWidth: 100, align: "left", type: "text", getValue: (r) => r.type },
+  { key: "a", label: "A", minWidth: 56, align: "center", type: "number", getValue: (r) => r.a },
+  { key: "b", label: "B", minWidth: 56, align: "center", type: "number", getValue: (r) => r.b },
+  { key: "c", label: "C", minWidth: 56, align: "center", type: "number", getValue: (r) => r.c },
+  { key: "d", label: "D", minWidth: 56, align: "center", type: "number", getValue: (r) => r.d },
+  { key: "total", label: "Total (A+B+C+D)", minWidth: 80, align: "center", type: "number", readOnly: true, getValue: (r) => r.total },
+]
+
+/** Fixed columns after items */
+const POST_ITEM_COLS: ColumnDef[] = [
+  { key: "x", label: "X", minWidth: 64, align: "center", type: "number", alwaysEditable: true, getValue: (r) => r.x },
+  { key: "y", label: "Y", minWidth: 64, align: "center", type: "number", alwaysEditable: true, getValue: (r) => r.y },
+  { key: "z", label: "Z", minWidth: 64, align: "center", type: "number", alwaysEditable: true, getValue: (r) => r.z },
+  { key: "xGrid", label: "X-Grid", minWidth: 80, align: "left", type: "text", getValue: (r) => r.xGrid },
+  { key: "yGrid", label: "Y-Grid", minWidth: 80, align: "left", type: "text", getValue: (r) => r.yGrid },
+  { key: "remarks", label: "Remarks", minWidth: 200, align: "left", type: "text", alwaysEditable: true, getValue: (r) => r.remarks },
 ]
 
 interface SupportTableProps {
   rows: SupportRow[]
   onCellEdit?: (rowIndex: number, colKey: string, value: string | number) => void
   disabled?: boolean
+  selectedRows?: Set<number>
+  onRowSelect?: (rowIndex: number) => void
 }
 
-export default function SupportTable({ rows, onCellEdit, disabled = false }: SupportTableProps) {
+export default function SupportTable({ rows, onCellEdit, disabled = false, selectedRows, onRowSelect }: SupportTableProps) {
+  // Determine max item count across all rows
+  const maxItems = useMemo(() => {
+    let max = 0
+    for (const row of rows) {
+      if (row.items && row.items.length > max) max = row.items.length
+    }
+    // Fallback: at least check legacy fields
+    if (max === 0) {
+      for (const row of rows) {
+        if (row.item01Name || row.item01Qty) max = Math.max(max, 1)
+        if (row.item02Name || row.item02Qty) max = Math.max(max, 2)
+        if (row.item03Name || row.item03Qty) max = Math.max(max, 3)
+      }
+    }
+    return Math.max(max, 1) // at least 1 item column
+  }, [rows])
+
+  // Build dynamic item columns
+  const itemCols: ColumnDef[] = useMemo(() => {
+    const cols: ColumnDef[] = []
+    for (let i = 0; i < maxItems; i++) {
+      const idx = i
+      const num = String(i + 1).padStart(2, "0")
+      cols.push({
+        key: `item${num}Name`,
+        label: `Item-${num} Name`,
+        minWidth: 130,
+        align: "left",
+        type: "text",
+        getValue: (r) => r.items?.[idx]?.name ?? (r as unknown as Record<string, string>)[`item${num}Name`] ?? "",
+      })
+      cols.push({
+        key: `item${num}Qty`,
+        label: `Item-${num} Qty`,
+        minWidth: 72,
+        align: "center",
+        type: "number",
+        getValue: (r) => r.items?.[idx]?.qty ?? (r as unknown as Record<string, string>)[`item${num}Qty`] ?? "",
+      })
+    }
+    return cols
+  }, [maxItems])
+
+  const allColumns = useMemo(() => [...PRE_ITEM_COLS, ...itemCols, ...POST_ITEM_COLS], [itemCols])
+
   return (
     <div
       style={{
@@ -59,14 +106,17 @@ export default function SupportTable({ rows, onCellEdit, disabled = false }: Sup
       <table
         style={{
           width: "100%",
-          minWidth: 1600,
+          minWidth: allColumns.reduce((s, c) => s + c.minWidth, 0),
           borderCollapse: "separate",
           borderSpacing: 0,
         }}
       >
         <thead>
           <tr>
-            {COLUMNS.map((col) => (
+            {onRowSelect && (
+              <th style={{ background: "var(--color-surface-2)", padding: "var(--space-2)", borderBottom: "1px solid var(--color-border)", position: "sticky", top: 0, zIndex: 1, width: 32 }} />
+            )}
+            {allColumns.map((col) => (
               <th
                 key={col.key}
                 style={{
@@ -108,9 +158,14 @@ export default function SupportTable({ rows, onCellEdit, disabled = false }: Sup
                   borderLeft: isWarning ? "3px solid var(--color-warning)" : undefined,
                 }}
               >
-                {COLUMNS.map((col) => {
-                  const cellValue = row[col.key]
-                  const isMissing = !col.readOnly && row._missingFields.includes(col.key as string)
+                {onRowSelect && (
+                  <td style={{ padding: "var(--space-2)", verticalAlign: "middle", borderBottom: "1px solid var(--color-border)" }}>
+                    <input type="checkbox" checked={selectedRows?.has(row._rowIndex) || false} onChange={() => onRowSelect(row._rowIndex)} style={{ accentColor: "var(--color-primary)" }} />
+                  </td>
+                )}
+                {allColumns.map((col) => {
+                  const cellValue = col.getValue(row)
+                  const isMissing = !col.readOnly && row._missingFields.includes(col.key)
                   const isEditable = col.alwaysEditable && !col.readOnly
 
                   return (
@@ -141,14 +196,14 @@ export default function SupportTable({ rows, onCellEdit, disabled = false }: Sup
                           value={null}
                           columnType={col.type}
                           disabled={disabled}
-                          onCommit={(val) => onCellEdit?.(row._rowIndex, col.key as string, val)}
+                          onCommit={(val) => onCellEdit?.(row._rowIndex, col.key, val)}
                         />
                       ) : isEditable ? (
                         <EditableCell
-                          value={cellValue as string | number | null}
+                          value={cellValue || null}
                           columnType={col.type}
                           disabled={disabled}
-                          onCommit={(val) => onCellEdit?.(row._rowIndex, col.key as string, val)}
+                          onCommit={(val) => onCellEdit?.(row._rowIndex, col.key, val)}
                         />
                       ) : (
                         String(cellValue ?? "")

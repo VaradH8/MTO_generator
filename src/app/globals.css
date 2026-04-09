@@ -160,3 +160,83 @@ a {
 a:hover {
   color: var(--color-primary-hover);
 }
+
+/* ===== Animations ===== */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Utility classes */
+.animate-fade-in { animation: fadeIn 0.3s ease-out both; }
+.animate-fade-in-up { animation: fadeInUp 0.35s ease-out both; }
+.animate-fade-in-down { animation: fadeInDown 0.25s ease-out both; }
+.animate-scale-in { animation: scaleIn 0.3s ease-out both; }
+.animate-slide-in-left { animation: slideInLeft 0.3s ease-out both; }
+
+/* Stagger children — add delay-1 through delay-5 */
+.delay-1 { animation-delay: 0.05s; }
+.delay-2 { animation-delay: 0.1s; }
+.delay-3 { animation-delay: 0.15s; }
+.delay-4 { animation-delay: 0.2s; }
+.delay-5 { animation-delay: 0.25s; }
+
+/* Smooth transitions on interactive elements */
+button, a, input, select, textarea {
+  transition: all var(--transition-fast);
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+input:focus, select:focus, textarea:focus {
+  box-shadow: var(--shadow-focus);
+  border-color: var(--color-primary);
+}
+
+/* ===== Mobile Responsive ===== */
+
+@media (max-width: 768px) {
+  :root {
+    --container-pad-x: var(--space-4);
+  }
+
+  h1 {
+    font-size: 1.25rem !important;
+  }
+
+  /* Stack flex rows on mobile */
+  [style*="display: flex"][style*="gap"] {
+    flex-wrap: wrap;
+  }
+}

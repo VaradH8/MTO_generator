@@ -49,6 +49,7 @@ export function validateRows(mappedRows: Record<string, unknown>[]): ValidationR
       c: String(raw["c"] ?? ""),
       d: String(raw["d"] ?? ""),
       total: "", // auto-calculated
+      items: [], // populated later by upload finalize from project config
       item01Name: String(raw["item01Name"] ?? ""),
       item01Qty: String(raw["item01Qty"] ?? ""),
       item02Name: String(raw["item02Name"] ?? ""),

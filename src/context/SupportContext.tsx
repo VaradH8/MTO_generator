@@ -8,11 +8,15 @@ const STORAGE_KEY = "spg_support"
 interface SupportContextType {
   validationResult: ValidationResult | null
   groupedSupports: GroupedSupports | null
-  billingRecorded: boolean
+  /** Project ID and name carried through upload → review → output */
+  currentProjectId: string
+  currentProjectName: string
+  approvalSubmitted: boolean
   loaded: boolean
   setValidationResult: (result: ValidationResult | null) => void
   setGroupedSupports: (groups: GroupedSupports | null) => void
-  setBillingRecorded: (recorded: boolean) => void
+  setCurrentProject: (id: string, name: string) => void
+  setApprovalSubmitted: (submitted: boolean) => void
 }
 
 const SupportContext = createContext<SupportContextType | undefined>(undefined)
@@ -20,7 +24,9 @@ const SupportContext = createContext<SupportContextType | undefined>(undefined)
 export function SupportProvider({ children }: { children: ReactNode }) {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
   const [groupedSupports, setGroupedSupports] = useState<GroupedSupports | null>(null)
-  const [billingRecorded, setBillingRecorded] = useState(false)
+  const [currentProjectId, setCurrentProjectId] = useState("")
+  const [currentProjectName, setCurrentProjectName] = useState("")
+  const [approvalSubmitted, setApprovalSubmitted] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
@@ -30,7 +36,9 @@ export function SupportProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(raw)
         if (parsed.validationResult) setValidationResult(parsed.validationResult)
         if (parsed.groupedSupports) setGroupedSupports(parsed.groupedSupports)
-        if (parsed.billingRecorded) setBillingRecorded(parsed.billingRecorded)
+        if (parsed.currentProjectId) setCurrentProjectId(parsed.currentProjectId)
+        if (parsed.currentProjectName) setCurrentProjectName(parsed.currentProjectName)
+        if (parsed.approvalSubmitted) setApprovalSubmitted(parsed.approvalSubmitted)
       }
     } catch {
       // ignore
@@ -40,20 +48,34 @@ export function SupportProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (loaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ validationResult, groupedSupports, billingRecorded }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        validationResult,
+        groupedSupports,
+        currentProjectId,
+        currentProjectName,
+        approvalSubmitted,
+      }))
     }
-  }, [validationResult, groupedSupports, billingRecorded, loaded])
+  }, [validationResult, groupedSupports, currentProjectId, currentProjectName, approvalSubmitted, loaded])
+
+  const setCurrentProject = (id: string, name: string) => {
+    setCurrentProjectId(id)
+    setCurrentProjectName(name)
+  }
 
   return (
     <SupportContext.Provider
       value={{
         validationResult,
         groupedSupports,
-        billingRecorded,
+        currentProjectId,
+        currentProjectName,
+        approvalSubmitted,
         loaded,
         setValidationResult,
         setGroupedSupports,
-        setBillingRecorded,
+        setCurrentProject,
+        setApprovalSubmitted,
       }}
     >
       {children}

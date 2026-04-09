@@ -68,13 +68,8 @@ const HEADER_ALIASES: Record<string, string> = {
   "y grid": "yGrid",
   "ygrid": "yGrid",
 
-  // remarks
-  "remarks": "remarks",
-  "remark": "remarks",
-  "review reason": "remarks",
-  "notes": "remarks",
-  "comment": "remarks",
-  "comments": "remarks",
+  // remarks — intentionally NOT mapped from Excel
+  // remarks column is always empty and editable per-row in the review table
 }
 
 /**

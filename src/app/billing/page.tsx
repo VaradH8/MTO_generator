@@ -1,12 +1,28 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/context/AuthContext"
 import { useBilling, calculateAmount, MIN_SUPPORTS_PER_REVISION, MAX_SUPPORTS_PER_REVISION } from "@/context/BillingContext"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
+import EmptyState from "@/components/EmptyState"
 import { generateInvoicePDF } from "@/lib/generateInvoice"
 
 export default function BillingPage() {
+  const { user } = useAuth()
+  const router = useRouter()
+
+  // Block non-admin users
+  if (user?.role !== "admin") {
+    return (
+      <EmptyState
+        title="Access Denied"
+        message="Only admin users can access billing."
+        action={{ label: "Go to Dashboard", onClick: () => router.push("/dashboard") }}
+      />
+    )
+  }
   const {
     state,
     currentTotalSupports,
@@ -30,16 +46,21 @@ export default function BillingPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleDownloadInvoice = () => {
-    const blob = generateInvoicePDF({
-      cycleId: Date.now().toString(36),
+  // Derive project name from entries (first entry's fileName usually has project name)
+  const projectLabel = state.currentEntries[0]?.fileName?.replace(" (approved)", "").trim() || "Project"
+  const invoiceSeq = String(state.history.length + 1).padStart(3, "0")
+  const invoiceNumber = `${projectLabel.replace(/\s+/g, "_")}_${invoiceSeq}`
+
+  const handleDownloadInvoice = async () => {
+    const blob = await generateInvoicePDF({
+      invoiceNumber,
       billedAt: new Date().toISOString(),
       entries: state.currentEntries,
       totalSupports: currentTotalSupports,
       revisionCount: currentRevisionCount,
       amountDue: currentAmount,
     })
-    triggerDownload(blob, `invoice-${new Date().toISOString().slice(0, 10)}.pdf`)
+    triggerDownload(blob, `invoice-${invoiceNumber}.pdf`)
   }
 
   const handleMarkBilled = () => {
@@ -47,18 +68,20 @@ export default function BillingPage() {
     setConfirmBill(false)
   }
 
-  const handleDownloadPastInvoice = (cycleIndex: number) => {
+  const handleDownloadPastInvoice = async (cycleIndex: number) => {
     const cycle = state.history[cycleIndex]
-    const blob = generateInvoicePDF({
-      cycleId: cycle.id,
+    const pastLabel = cycle.entries[0]?.fileName?.replace(" (approved)", "").trim() || "Project"
+    const pastSeq = String(cycleIndex + 1).padStart(3, "0")
+    const pastInvoiceNum = `${pastLabel.replace(/\s+/g, "_")}_${pastSeq}`
+    const blob = await generateInvoicePDF({
+      invoiceNumber: pastInvoiceNum,
       billedAt: cycle.billedAt,
       entries: cycle.entries,
       totalSupports: cycle.totalSupports,
       revisionCount: cycle.entries.length,
       amountDue: cycle.amountDue,
     })
-    const date = new Date(cycle.billedAt).toISOString().slice(0, 10)
-    triggerDownload(blob, `invoice-${date}-${cycle.id}.pdf`)
+    triggerDownload(blob, `invoice-${pastInvoiceNum}.pdf`)
   }
 
   // Pricing breakdown

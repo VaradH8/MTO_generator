@@ -4,11 +4,14 @@ import { ThemeProvider } from "@/context/ThemeProvider"
 import { AuthProvider } from "@/context/AuthContext"
 import { SupportProvider } from "@/context/SupportContext"
 import { BillingProvider } from "@/context/BillingContext"
+import { ProjectProvider } from "@/context/ProjectContext"
+import { SettingsProvider } from "@/context/SettingsContext"
+import { ApprovalProvider } from "@/context/ApprovalContext"
 import AuthGate from "@/components/AuthGate"
-import AppHeader from "@/components/AppHeader"
+import AppShell from "@/components/AppShell"
 
 export const metadata: Metadata = {
-  title: "Support PDF Generator",
+  title: "Support MTO",
   description: "Upload support schedules, review data, and generate PDFs",
 }
 
@@ -23,24 +26,17 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <AuthGate>
+              <SettingsProvider>
+              <ProjectProvider>
               <BillingProvider>
+              <ApprovalProvider>
               <SupportProvider>
-                <AppHeader />
-                <main
-                  style={{
-                    maxWidth: "var(--container-max)",
-                    paddingLeft: "var(--container-pad-x)",
-                    paddingRight: "var(--container-pad-x)",
-                    paddingTop: "var(--space-10)",
-                    paddingBottom: "var(--space-10)",
-                    margin: "0 auto",
-                    minHeight: "calc(100vh - 56px)",
-                  }}
-                >
-                  {children}
-                </main>
+                <AppShell>{children}</AppShell>
               </SupportProvider>
+              </ApprovalProvider>
               </BillingProvider>
+              </ProjectProvider>
+              </SettingsProvider>
             </AuthGate>
           </AuthProvider>
         </ThemeProvider>

@@ -62,6 +62,7 @@ export default function FileUploadZone({
       {/* Drop Zone */}
       {!file && (
         <div
+          className="animate-fade-in-up"
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault()
@@ -123,6 +124,7 @@ export default function FileUploadZone({
       {/* File Info Bar */}
       {file && (
         <div
+          className="animate-fade-in-up"
           style={{
             background: "var(--color-surface)",
             border: "1px solid var(--color-border)",
@@ -182,6 +184,7 @@ export default function FileUploadZone({
       {/* Validation Feedback */}
       {status === "valid" && (
         <div
+          className="animate-fade-in-down"
           style={{
             marginTop: "var(--space-4)",
             padding: "var(--space-3) var(--space-4)",
@@ -203,6 +206,7 @@ export default function FileUploadZone({
 
       {status === "invalid" && errorMessage && (
         <div
+          className="animate-fade-in-down"
           style={{
             marginTop: "var(--space-4)",
             padding: "var(--space-3) var(--space-4)",
