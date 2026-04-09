@@ -34,30 +34,33 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Blob> {
   doc.setFillColor(...PRIMARY)
   doc.rect(0, 0, pw, 4, "F")
 
-  // ─── Logo with dark background ───
+  // ─── Logo — large, with dark background for visibility ───
+  const logoSize = 30
+  const logoPad = 3
+  const logoBoxSize = logoSize + logoPad * 2
   try {
     const logoRes = await fetch("/logo.png")
     const logoBuf = await logoRes.arrayBuffer()
     const logoB64 = btoa(String.fromCharCode(...new Uint8Array(logoBuf)))
-    // Dark background box
     doc.setFillColor(...DARK)
-    doc.roundedRect(mx, 10, 22, 22, 3, 3, "F")
-    doc.addImage(`data:image/png;base64,${logoB64}`, "PNG", mx + 2, 12, 18, 18)
+    doc.roundedRect(mx, 8, logoBoxSize, logoBoxSize, 3, 3, "F")
+    doc.addImage(`data:image/png;base64,${logoB64}`, "PNG", mx + logoPad, 8 + logoPad, logoSize, logoSize)
   } catch {
     doc.setFillColor(...DARK)
-    doc.roundedRect(mx, 10, 22, 22, 3, 3, "F")
+    doc.roundedRect(mx, 8, logoBoxSize, logoBoxSize, 3, 3, "F")
   }
 
-  // App name
+  // App name — positioned to the right of the larger logo
+  const textX = mx + logoBoxSize + 6
   doc.setTextColor(...DARK)
-  doc.setFontSize(12)
+  doc.setFontSize(13)
   doc.setFont(fonts.display, "bold")
-  doc.text("Support MTO", mx + 28, 19)
+  doc.text("Support MTO", textX, 21)
 
-  doc.setFontSize(7.5)
+  doc.setFontSize(8)
   doc.setFont(fonts.body, "normal")
   doc.setTextColor(...MUTED)
-  doc.text("Structural Support Billing", mx + 28, 24)
+  doc.text("Structural Support Billing", textX, 27)
 
   // ─── INVOICE title ───
   doc.setFontSize(28)
@@ -78,10 +81,10 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Blob> {
   // ─── Divider ───
   doc.setDrawColor(...BORDER)
   doc.setLineWidth(0.3)
-  doc.line(mx, 36, pw - mx, 36)
+  doc.line(mx, 44, pw - mx, 44)
 
   // ─── Amount Due box ───
-  const boxY = 42
+  const boxY = 50
   doc.setFillColor(...PRIMARY_LIGHT)
   doc.roundedRect(mx, boxY, pw - mx * 2, 22, 3, 3, "F")
 
