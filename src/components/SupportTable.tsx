@@ -848,7 +848,7 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
                 >
                   {/* Row checkbox */}
                   {onRowSelect && (
-                    <td style={{ padding: "2px", verticalAlign: "middle", borderBottom: "1px solid var(--color-border)", position: "sticky", left: 0, background: "inherit", zIndex: 1 }}>
+                    <td style={{ padding: "2px", verticalAlign: "middle", borderBottom: "1px solid var(--color-border)", position: "sticky", left: 0, background: isWarning ? "var(--color-warning-soft)" : rowIdx % 2 === 1 ? "var(--color-surface-2)" : "var(--color-surface)", zIndex: 1 }}>
                       <input type="checkbox" checked={selectedRows?.has(row._rowIndex) || false} onChange={() => onRowSelect(row._rowIndex)} style={{ accentColor: "var(--color-primary)" }} />
                     </td>
                   )}
@@ -862,7 +862,7 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
                         setDragRowIdx(row._rowIndex)
                       }}
                       onDragEnd={() => { setDragRowIdx(null); setDragOverIdx(null) }}
-                      style={{ padding: "2px 4px", verticalAlign: "middle", borderBottom: "1px solid var(--color-border)", cursor: "grab", color: "var(--color-text-faint)", fontSize: "0.75rem", textAlign: "center", userSelect: "none" }}
+                      style={{ padding: "2px 4px", verticalAlign: "middle", borderBottom: "1px solid var(--color-border)", cursor: "grab", color: "var(--color-text-faint)", fontSize: "0.75rem", textAlign: "center", userSelect: "none", background: isWarning ? "var(--color-warning-soft)" : rowIdx % 2 === 1 ? "var(--color-surface-2)" : "var(--color-surface)" }}
                     >
                       ⠿
                     </td>
@@ -926,14 +926,14 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
                             : isSel
                             ? "var(--color-primary-soft)"
                             : inAutofill
-                            ? "rgba(49, 130, 206, 0.12)"
+                            ? (isFrozen ? "#e2ecf6" : "rgba(49, 130, 206, 0.12)")
                             : col.readOnly
                             ? "var(--color-surface-offset)"
                             : isMissing
-                            ? "rgba(154, 100, 0, 0.18)"
+                            ? (isFrozen ? "#e8dcc0" : "rgba(154, 100, 0, 0.18)")
                             : isEditable
                             ? "var(--color-primary-soft)"
-                            : customStyle.background || "inherit",
+                            : customStyle.background || (rowIdx % 2 === 1 ? "var(--color-surface-2)" : "var(--color-surface)"),
                           outline: isSel ? "2px solid var(--color-primary)" : isMissing ? "1px dashed var(--color-warning)" : undefined,
                           outlineOffset: isSel ? -2 : undefined,
                           fontWeight: customStyle.fontWeight || (col.readOnly ? 600 : undefined),
