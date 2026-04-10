@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.claude
+_bmad
+_bmad-output
+design-artifacts
+*.md
+!README.md
+.env*
+.DS_Store
+npm-debug.log*
