@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import type { SupportRow } from "@/types/support"
 import EditableCell from "./EditableCell"
 
@@ -46,6 +46,8 @@ interface SupportTableProps {
 }
 
 export default function SupportTable({ rows, onCellEdit, disabled = false, selectedRows, onRowSelect }: SupportTableProps) {
+  const [filters, setFilters] = useState<Record<string, string>>({})
+
   // Determine max item count across all rows
   const maxItems = useMemo(() => {
     let max = 0
@@ -90,6 +92,20 @@ export default function SupportTable({ rows, onCellEdit, disabled = false, selec
   }, [maxItems])
 
   const allColumns = useMemo(() => [...PRE_ITEM_COLS, ...itemCols, ...POST_ITEM_COLS], [itemCols])
+
+  const filteredRows = useMemo(() => {
+    const activeFilters = Object.entries(filters).filter(([, v]) => v.trim() !== "")
+    if (activeFilters.length === 0) return rows
+    return rows.filter((row) =>
+      activeFilters.every(([colKey, query]) => {
+        const col = allColumns.find((c) => c.key === colKey)
+        if (!col) return true
+        return col.getValue(row).toLowerCase().includes(query.trim().toLowerCase())
+      })
+    )
+  }, [rows, filters, allColumns])
+
+  const hasActiveFilters = Object.values(filters).some((v) => v.trim() !== "")
 
   return (
     <div
@@ -141,9 +157,81 @@ export default function SupportTable({ rows, onCellEdit, disabled = false, selec
               </th>
             ))}
           </tr>
+          {/* Per-column filter inputs */}
+          <tr>
+            {onRowSelect && (
+              <th style={{ background: "var(--color-surface)", padding: "var(--space-1)", borderBottom: "1px solid var(--color-border)", position: "sticky", top: 38, zIndex: 1, width: 32 }} />
+            )}
+            {allColumns.map((col) => (
+              <th
+                key={`filter-${col.key}`}
+                style={{
+                  background: "var(--color-surface)",
+                  padding: "var(--space-1) var(--space-2)",
+                  borderBottom: "1px solid var(--color-border)",
+                  position: "sticky",
+                  top: 38,
+                  zIndex: 1,
+                }}
+              >
+                <input
+                  type="text"
+                  value={filters[col.key] || ""}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, [col.key]: e.target.value }))}
+                  placeholder="Filter"
+                  style={{
+                    width: "100%",
+                    height: 24,
+                    padding: "0 var(--space-2)",
+                    fontFamily: "var(--font-body)",
+                    fontSize: "0.6875rem",
+                    color: "var(--color-text)",
+                    background: filters[col.key] ? "var(--color-primary-soft)" : "var(--color-surface-2)",
+                    border: filters[col.key] ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-sm)",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </th>
+            ))}
+          </tr>
         </thead>
         <tbody>
-          {rows.map((row, rowIdx) => {
+          {hasActiveFilters && (
+            <tr>
+              <td
+                colSpan={allColumns.length + (onRowSelect ? 1 : 0)}
+                style={{
+                  padding: "var(--space-1) var(--space-3)",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "0.75rem",
+                  color: "var(--color-text-muted)",
+                  background: "var(--color-primary-soft)",
+                  borderBottom: "1px solid var(--color-border)",
+                }}
+              >
+                Showing {filteredRows.length} of {rows.length} rows
+                <button
+                  onClick={() => setFilters({})}
+                  style={{
+                    marginLeft: "var(--space-3)",
+                    fontFamily: "var(--font-display)",
+                    fontSize: "0.6875rem",
+                    fontWeight: 600,
+                    color: "var(--color-primary)",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Clear all filters
+                </button>
+              </td>
+            </tr>
+          )}
+          {filteredRows.map((row, rowIdx) => {
             const isWarning = row._hasErrors
 
             return (
