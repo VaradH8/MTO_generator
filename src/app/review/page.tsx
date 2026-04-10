@@ -81,6 +81,10 @@ export default function ReviewPage() {
     setGroupedSupports(grouped)
   }
 
+  const handleRowsChange = (newRows: typeof rows) => {
+    updateValidation(newRows)
+  }
+
   // Bulk operations
   const handleBulkApply = () => {
     if (selectedRows.size === 0) return
@@ -204,7 +208,7 @@ export default function ReviewPage() {
 
       {/* Table */}
       <div style={{ marginBottom: "var(--space-6)" }} id="print-area">
-        <SupportTable rows={filteredRows} onCellEdit={handleCellEdit} disabled={generating} selectedRows={selectedRows} onRowSelect={toggleRowSelect} />
+        <SupportTable rows={filteredRows} onCellEdit={handleCellEdit} onRowsChange={handleRowsChange} disabled={generating} selectedRows={selectedRows} onRowSelect={toggleRowSelect} />
       </div>
 
       {/* Actions */}
