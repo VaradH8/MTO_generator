@@ -94,6 +94,7 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
   // ─── Column drag & drop ─────────────────────────────────────────────
   const [dragColKey, setDragColKey] = useState<string | null>(null)
   const [dragOverColKey, setDragOverColKey] = useState<string | null>(null)
+  const didDragCol = useRef(false)
 
   // ─── Column resize ──────────────────────────────────────────────────
   const resizeRef = useRef<{ colKey: string; startX: number; startW: number } | null>(null)
@@ -731,12 +732,13 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
                   <th
                     key={col.key}
                     draggable
-                    onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setDragColKey(col.key) }}
-                    onDragOver={(e) => { e.preventDefault(); setDragOverColKey(col.key) }}
+                    onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", col.key); setDragColKey(col.key); didDragCol.current = false }}
+                    onDrag={() => { didDragCol.current = true }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverColKey(col.key) }}
                     onDragLeave={() => setDragOverColKey(null)}
-                    onDrop={() => { if (dragColKey) handleColDrop(dragColKey, col.key); setDragColKey(null); setDragOverColKey(null) }}
+                    onDrop={(e) => { e.preventDefault(); if (dragColKey) handleColDrop(dragColKey, col.key); setDragColKey(null); setDragOverColKey(null) }}
                     onDragEnd={() => { setDragColKey(null); setDragOverColKey(null) }}
-                    onClick={() => toggleSort(col.key)}
+                    onClick={() => { if (!didDragCol.current) toggleSort(col.key) }}
                     style={{
                       ...stickyHeaderStyle,
                       width,
@@ -819,6 +821,24 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
                 <tr
                   key={row._rowIndex}
                   onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, rowIndex: row._rowIndex }) }}
+                  onDragOver={(e) => {
+                    if (dragRowIdx === null) return
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = "move"
+                    setDragOverIdx(row._rowIndex)
+                  }}
+                  onDragLeave={(e) => {
+                    // Only clear if leaving the row, not entering a child
+                    if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+                      setDragOverIdx(null)
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    if (dragRowIdx !== null) handleRowDrop(dragRowIdx, row._rowIndex)
+                    setDragRowIdx(null)
+                    setDragOverIdx(null)
+                  }}
                   style={{
                     background: isWarning ? "var(--color-warning-soft)" : rowIdx % 2 === 1 ? "var(--color-surface-2)" : undefined,
                     borderLeft: isWarning ? "3px solid var(--color-warning)" : undefined,
@@ -836,10 +856,11 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
                   {onRowsChange && (
                     <td
                       draggable
-                      onDragStart={() => setDragRowIdx(row._rowIndex)}
-                      onDragOver={(e) => { e.preventDefault(); setDragOverIdx(row._rowIndex) }}
-                      onDragLeave={() => setDragOverIdx(null)}
-                      onDrop={() => { if (dragRowIdx !== null) handleRowDrop(dragRowIdx, row._rowIndex); setDragRowIdx(null); setDragOverIdx(null) }}
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = "move"
+                        e.dataTransfer.setData("text/plain", String(row._rowIndex))
+                        setDragRowIdx(row._rowIndex)
+                      }}
                       onDragEnd={() => { setDragRowIdx(null); setDragOverIdx(null) }}
                       style={{ padding: "2px 4px", verticalAlign: "middle", borderBottom: "1px solid var(--color-border)", cursor: "grab", color: "var(--color-text-faint)", fontSize: "0.75rem", textAlign: "center", userSelect: "none" }}
                     >
@@ -874,6 +895,7 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
                         onMouseDown={(e) => {
                           if (e.button !== 0) return
                           if (isEditing) return
+                          if (dragRowIdx !== null) return
                           if (e.shiftKey) {
                             setSelFocus({ row: row._rowIndex, col: col.key })
                           } else {
