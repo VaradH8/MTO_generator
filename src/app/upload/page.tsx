@@ -153,7 +153,8 @@ export default function UploadPage() {
         if (idx !== -1) remainingMissing.splice(idx, 1)
       }
       // Populate dynamic items array from project type config
-      const typeConfig = typeConfigs.find((t: SupportTypeConfig) => t.typeName === (updated.type || rowType))
+      const normalizedType = (updated.type || rowType).trim().toLowerCase()
+      const typeConfig = typeConfigs.find((t: SupportTypeConfig) => t.typeName.trim().toLowerCase() === normalizedType)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const legacyConfig = typeConfig as any
       if (typeConfig?.items && typeConfig.items.length > 0) {
@@ -186,6 +187,16 @@ export default function UploadPage() {
         })
       } else {
         updated.items = []
+      }
+      // Remove item fields from missing list when populated from project config
+      if (updated.items.length > 0) {
+        for (let i = 0; i < updated.items.length && i < 3; i++) {
+          const prefix = `item0${i + 1}`
+          for (const suffix of ["Name", "Qty"]) {
+            const idx = remainingMissing.indexOf(`${prefix}${suffix}`)
+            if (idx !== -1) remainingMissing.splice(idx, 1)
+          }
+        }
       }
       updated.total = calcTotal(updated)
       const ti = remainingMissing.indexOf("total"); if (ti !== -1) remainingMissing.splice(ti, 1)

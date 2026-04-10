@@ -193,7 +193,7 @@ export default function SupportTable({ rows, onCellEdit, disabled = false, selec
                     >
                       {isMissing ? (
                         <EditableCell
-                          value={null}
+                          value={cellValue || null}
                           columnType={col.type}
                           disabled={disabled}
                           onCommit={(val) => onCellEdit?.(row._rowIndex, col.key, val)}
