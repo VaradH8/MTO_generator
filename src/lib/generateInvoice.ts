@@ -34,24 +34,43 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Blob> {
   doc.setFillColor(...PRIMARY)
   doc.rect(0, 0, pw, 4, "F")
 
-  // ─── Logo — large, with dark background for visibility ───
-  const logoSize = 30
+  // ─── Logo — original aspect ratio ───
+  const logoMaxH = 30
   const logoPad = 3
-  const logoBoxSize = logoSize + logoPad * 2
+  let logoBoxW = logoMaxH + logoPad * 2
+  let logoBoxH = logoMaxH + logoPad * 2
   try {
     const logoRes = await fetch("/logo.png")
     const logoBuf = await logoRes.arrayBuffer()
     const logoB64 = btoa(String.fromCharCode(...new Uint8Array(logoBuf)))
+    // Get original dimensions to preserve aspect ratio
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image()
+      i.onload = () => resolve(i)
+      i.onerror = reject
+      i.src = `data:image/png;base64,${logoB64}`
+    })
+    const aspect = img.naturalWidth / img.naturalHeight
+    let logoW: number, logoH: number
+    if (aspect >= 1) {
+      logoH = logoMaxH
+      logoW = logoMaxH * aspect
+    } else {
+      logoW = logoMaxH
+      logoH = logoMaxH / aspect
+    }
+    logoBoxW = logoW + logoPad * 2
+    logoBoxH = logoH + logoPad * 2
     doc.setFillColor(...DARK)
-    doc.roundedRect(mx, 8, logoBoxSize, logoBoxSize, 3, 3, "F")
-    doc.addImage(`data:image/png;base64,${logoB64}`, "PNG", mx + logoPad, 8 + logoPad, logoSize, logoSize)
+    doc.roundedRect(mx, 8, logoBoxW, logoBoxH, 3, 3, "F")
+    doc.addImage(`data:image/png;base64,${logoB64}`, "PNG", mx + logoPad, 8 + logoPad, logoW, logoH)
   } catch {
     doc.setFillColor(...DARK)
-    doc.roundedRect(mx, 8, logoBoxSize, logoBoxSize, 3, 3, "F")
+    doc.roundedRect(mx, 8, logoBoxW, logoBoxH, 3, 3, "F")
   }
 
-  // App name — positioned to the right of the larger logo
-  const textX = mx + logoBoxSize + 6
+  // App name — positioned to the right of the logo
+  const textX = mx + logoBoxW + 6
   doc.setTextColor(...DARK)
   doc.setFontSize(13)
   doc.setFont(fonts.display, "bold")
