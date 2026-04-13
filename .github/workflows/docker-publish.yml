@@ -49,3 +49,20 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Redeploy on Portainer
+        run: |
+          curl -X PUT \
+            "https://portainer.inventivebizsol.co.in/api/stacks/72/git/redeploy?endpointId=1" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"pullImage": true, "prune": false}' \
+            --fail --silent --show-error || \
+          curl -X POST \
+            "https://portainer.inventivebizsol.co.in/api/stacks/72/stop" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
+            --silent && \
+          curl -X POST \
+            "https://portainer.inventivebizsol.co.in/api/stacks/72/start" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
+            --silent
