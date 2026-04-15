@@ -137,10 +137,18 @@ export default function DashboardPage() {
             {projects.map((project) => {
               // Calculate done supports (unique keys across all uploads)
               const doneKeys = new Set<string>()
+              const internalKeys = new Set<string>()
+              const externalKeys = new Set<string>()
               for (const u of (project.uploads || [])) {
-                for (const k of (u.supportKeys || [])) doneKeys.add(k)
+                for (const k of (u.supportKeys || [])) {
+                  doneKeys.add(k)
+                  if (u.classification === "external") externalKeys.add(k)
+                  else internalKeys.add(k)
+                }
               }
               const done = doneKeys.size
+              const internalCount = internalKeys.size
+              const externalCount = externalKeys.size
               const range = project.supportRange || 0
               const remaining = range > 0 ? Math.max(0, range - done) : 0
               const pct = range > 0 ? Math.min(100, Math.round((done / range) * 100)) : 0
@@ -162,6 +170,8 @@ export default function DashboardPage() {
                       {project.clientName}
                     </span>
                     <StatusBadge variant="info">{project.supportTypes.length} types</StatusBadge>
+                    {internalCount > 0 && <StatusBadge variant="info">{internalCount} internal</StatusBadge>}
+                    {externalCount > 0 && <StatusBadge variant="warning">{externalCount} external</StatusBadge>}
                     {range > 0 && <StatusBadge variant="success">{done} done</StatusBadge>}
                     {range > 0 && <StatusBadge variant="warning">{remaining} remaining</StatusBadge>}
                     {project.id === activeProject?.id && <StatusBadge variant="success">Active</StatusBadge>}

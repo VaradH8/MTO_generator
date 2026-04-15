@@ -77,11 +77,19 @@ export default function ProjectDetailPage() {
 
   // Stats
   const allKeys = new Set<string>()
+  const internalKeys = new Set<string>()
+  const externalKeys = new Set<string>()
   let totalRevisions = 0
   for (const u of uploads) {
-    for (const k of (u.supportKeys || [])) allKeys.add(k)
+    for (const k of (u.supportKeys || [])) {
+      allKeys.add(k)
+      if (u.classification === "external") externalKeys.add(k)
+      else internalKeys.add(k)
+    }
     totalRevisions += u.revisions || 0
   }
+  const internalCount = internalKeys.size
+  const externalCount = externalKeys.size
   const typeCount: Record<string, number> = {}
   for (const u of uploads) { for (const t of u.types) { typeCount[t] = (typeCount[t] || 0) + 1 } }
 
@@ -196,6 +204,18 @@ export default function ProjectDetailPage() {
                 <div style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 700, color: "var(--color-success)" }}>{done}</div>
                 <div style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.02em" }}>Done</div>
               </div>
+              {internalCount > 0 && (
+                <div style={statStyle}>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 700, color: "var(--color-primary)" }}>{internalCount}</div>
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.02em" }}>Internal</div>
+                </div>
+              )}
+              {externalCount > 0 && (
+                <div style={statStyle}>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 700, color: "var(--color-warning)" }}>{externalCount}</div>
+                  <div style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.02em" }}>External</div>
+                </div>
+              )}
               {range > 0 && (
                 <div style={statStyle}>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 700, color: "var(--color-warning)" }}>{remaining}</div>
