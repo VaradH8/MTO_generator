@@ -31,7 +31,7 @@ export async function GET(
       [id]
     )
     const supportTypes = await Promise.all(
-      types.map(async (t) => {
+      types.map(async (t: any) => {
         const { rows: items } = await pool.query(
           `SELECT item_id, item_name, qty, make, model
            FROM project_type_items WHERE project_support_type_id = $1`,

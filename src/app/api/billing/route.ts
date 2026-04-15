@@ -30,7 +30,7 @@ export async function GET(_req: NextRequest) {
     )
 
     const history = await Promise.all(
-      cycles.map(async (c) => {
+      cycles.map(async (c: any) => {
         const { rows: entries } = await pool.query(
           `SELECT id, file_name, support_count, support_keys, types, created_at
            FROM billing_entries WHERE cycle_id = $1 ORDER BY created_at DESC`,

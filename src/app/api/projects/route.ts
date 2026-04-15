@@ -14,14 +14,14 @@ export async function GET(_req: NextRequest) {
     )
 
     const result = await Promise.all(
-      projects.map(async (p) => {
+      projects.map(async (p: any) => {
         // Support types with items
         const { rows: types } = await pool.query(
           `SELECT id, type_name FROM project_support_types WHERE project_id = $1`,
           [p.id]
         )
         const supportTypes = await Promise.all(
-          types.map(async (t) => {
+          types.map(async (t: any) => {
             const { rows: items } = await pool.query(
               `SELECT item_id, item_name, qty, make, model
                FROM project_type_items WHERE project_support_type_id = $1`,

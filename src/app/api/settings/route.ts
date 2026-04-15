@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest) {
       `SELECT id, type_name FROM master_types ORDER BY type_name`
     )
     const masterTypes = await Promise.all(
-      typeRows.map(async (t) => {
+      typeRows.map(async (t: any) => {
         const { rows: typeItems } = await pool.query(
           `SELECT id, item_name FROM master_type_items WHERE master_type_id = $1 ORDER BY item_name`,
           [t.id]
