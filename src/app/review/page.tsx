@@ -15,7 +15,7 @@ function calcTotal(row: { a: string; b: string; c: string; d: string }): string 
 
 export default function ReviewPage() {
   const router = useRouter()
-  const { validationResult, setValidationResult, setGroupedSupports } = useSupportContext()
+  const { validationResult, setValidationResult, setGroupedSupports, setApprovalSubmitted } = useSupportContext()
   const [generating, setGenerating] = useState(false)
   const [search, setSearch] = useState("")
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
@@ -120,6 +120,7 @@ export default function ReviewPage() {
     const grouped: Record<string, typeof rows> = {}
     for (const row of rows) { const t = row.type || "Unknown"; if (!grouped[t]) grouped[t] = []; grouped[t].push(row) }
     setGroupedSupports(grouped)
+    setApprovalSubmitted(false)
     router.push("/output")
   }, [rows, setGroupedSupports, router])
 
