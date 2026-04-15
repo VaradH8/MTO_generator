@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest) {
             )
             return {
               typeName: t.type_name,
-              items: items.map((i) => ({
+              items: items.map((i: any) => ({
                 itemId: i.item_id,
                 itemName: i.item_name,
                 qty: i.qty,
@@ -62,7 +62,7 @@ export async function GET(_req: NextRequest) {
           supportRange: p.support_range ?? 0,
           isActive: p.is_active,
           supportTypes,
-          uploads: uploads.map((u) => ({
+          uploads: uploads.map((u: any) => ({
             id: u.id,
             fileName: u.file_name,
             uploadedAt: u.uploaded_at,
@@ -72,7 +72,7 @@ export async function GET(_req: NextRequest) {
             newSupports: u.new_supports,
             revisions: u.revisions,
           })),
-          activityLog: activity.map((a) => ({
+          activityLog: activity.map((a: any) => ({
             id: a.id,
             timestamp: a.timestamp,
             user: a.username,

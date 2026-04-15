@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest) {
        FROM pdf_approvals ORDER BY generated_at DESC`
     )
 
-    const result = rows.map((r) => ({
+    const result = rows.map((r: any) => ({
       id: r.id,
       projectId: r.project_id,
       projectName: r.project_name,

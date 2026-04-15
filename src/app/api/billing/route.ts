@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest) {
        FROM billing_entries WHERE cycle_id IS NULL ORDER BY created_at DESC`
     )
 
-    const currentEntries = currentRows.map((r) => ({
+    const currentEntries = currentRows.map((r: any) => ({
       id: r.id,
       fileName: r.file_name,
       supportCount: r.support_count,
@@ -43,7 +43,7 @@ export async function GET(_req: NextRequest) {
           totalRevisions: c.total_revisions,
           amount: c.amount,
           createdAt: c.created_at,
-          entries: entries.map((r) => ({
+          entries: entries.map((r: any) => ({
             id: r.id,
             fileName: r.file_name,
             supportCount: r.support_count,

@@ -20,7 +20,7 @@ export async function GET(
     )
 
     return NextResponse.json(
-      rows.map((a) => ({
+      rows.map((a: any) => ({
         id: a.id,
         timestamp: a.timestamp,
         user: a.username,

@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest) {
     const { rows: itemRows } = await pool.query(
       `SELECT id, item_name, category FROM master_items ORDER BY item_name`
     )
-    const masterItems = itemRows.map((r) => ({
+    const masterItems = itemRows.map((r: any) => ({
       id: r.id,
       itemName: r.item_name,
       category: r.category,
@@ -36,7 +36,7 @@ export async function GET(_req: NextRequest) {
         return {
           id: t.id,
           typeName: t.type_name,
-          items: typeItems.map((i) => ({
+          items: typeItems.map((i: any) => ({
             id: i.id,
             itemName: i.item_name,
           })),
