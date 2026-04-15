@@ -67,9 +67,6 @@ export default function ProjectDetailPage() {
   const [runResult, setRunResult] = useState<{ type: string; success: boolean; message: string }[]>([])
   const [bridgeStatus, setBridgeStatus] = useState<"unknown" | "connected" | "disconnected">("unknown")
 
-  // Auto-detect types from uploaded Excel data (read-only, user can't change)
-  const detectedTypes = Object.keys(typeCount)
-
   if (!project) {
     return <EmptyState title="Project not found" message="This project doesn't exist." action={{ label: "Go to Projects", onClick: () => router.push("/projects") }} />
   }
@@ -87,6 +84,9 @@ export default function ProjectDetailPage() {
   }
   const typeCount: Record<string, number> = {}
   for (const u of uploads) { for (const t of u.types) { typeCount[t] = (typeCount[t] || 0) + 1 } }
+
+  // Auto-detect types from uploaded Excel data (read-only, user can't change)
+  const detectedTypes = Object.keys(typeCount)
 
   const checkBridgeHealth = async () => {
     try {
