@@ -63,8 +63,12 @@ export default function ProjectDetailPage() {
   const [showRunPopup, setShowRunPopup] = useState(false)
   const [inputDwg, setInputDwg] = useState("")
   const [outputDwg, setOutputDwg] = useState("")
-  const [selectedType, setSelectedType] = useState("")
   const [running, setRunning] = useState(false)
+  const [runResult, setRunResult] = useState<{ type: string; success: boolean; message: string }[]>([])
+  const [bridgeStatus, setBridgeStatus] = useState<"unknown" | "connected" | "disconnected">("unknown")
+
+  // Auto-detect types from uploaded Excel data (read-only, user can't change)
+  const detectedTypes = Object.keys(typeCount)
 
   if (!project) {
     return <EmptyState title="Project not found" message="This project doesn't exist." action={{ label: "Go to Projects", onClick: () => router.push("/projects") }} />
@@ -84,18 +88,51 @@ export default function ProjectDetailPage() {
   const typeCount: Record<string, number> = {}
   for (const u of uploads) { for (const t of u.types) { typeCount[t] = (typeCount[t] || 0) + 1 } }
 
-  const handleRunConfirm = () => {
+  const checkBridgeHealth = async () => {
+    try {
+      const res = await fetch("/api/autocad?action=health")
+      const data = await res.json()
+      setBridgeStatus(data.connected ? "connected" : "disconnected")
+    } catch {
+      setBridgeStatus("disconnected")
+    }
+  }
+
+  const handleRunConfirm = async () => {
+    if (detectedTypes.length === 0 || !inputDwg.trim() || !outputDwg.trim()) return
     setRunning(true)
-    // This is where the AutoCAD plugin will be triggered
-    // For now, simulate with an alert
-    setTimeout(() => {
-      alert(`AutoCAD Plugin Triggered:\n\nInput DWG: ${inputDwg}\nOutput DWG: ${outputDwg}\nSupport Type: ${selectedType}\n\nPlugin not connected yet — this will call the AutoCAD API when integrated.`)
-      setRunning(false)
-      setShowRunPopup(false)
-      setInputDwg("")
-      setOutputDwg("")
-      setSelectedType("")
-    }, 500)
+    setRunResult([])
+
+    const results: typeof runResult = []
+
+    for (const supportType of detectedTypes) {
+      try {
+        const res = await fetch("/api/autocad?action=extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceDwgPath: inputDwg,
+            supportType,
+            outputDirectory: outputDwg,
+          }),
+        })
+        const data = await res.json()
+        results.push({
+          type: supportType,
+          success: data.success ?? res.ok,
+          message: data.message || (res.ok ? "Extracted successfully" : "Extraction failed"),
+        })
+      } catch (err) {
+        results.push({
+          type: supportType,
+          success: false,
+          message: err instanceof Error ? err.message : "Connection failed",
+        })
+      }
+    }
+
+    setRunResult(results)
+    setRunning(false)
   }
 
   const cardStyle: React.CSSProperties = {
@@ -138,7 +175,7 @@ export default function ProjectDetailPage() {
       {/* Quick actions */}
       <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-6)", flexWrap: "wrap" }}>
         <ActionButton variant="primary" onClick={() => router.push(`/upload?project=${project.id}`)}>Upload Excel</ActionButton>
-        <ActionButton variant="secondary" onClick={() => setShowRunPopup(true)}
+        <ActionButton variant="secondary" onClick={() => { setShowRunPopup(true); setRunResult([]); checkBridgeHealth() }}
           iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5 3l8 5-8 5V3z" fill="currentColor" /></svg>}
         >
           Run AutoCAD
@@ -272,124 +309,100 @@ export default function ProjectDetailPage() {
             style={{
               background: "var(--color-surface)", borderRadius: "var(--radius-lg)",
               padding: "var(--space-8)", boxShadow: "var(--shadow-xl)",
-              maxWidth: 500, width: "90%",
+              maxWidth: 520, width: "90%",
             }}
           >
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-2)" }}>
-              Run AutoCAD Plugin
-            </h2>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)" }}>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", fontWeight: 700, color: "var(--color-text)" }}>
+                Run AutoCAD Plugin
+              </h2>
+              <StatusBadge variant={bridgeStatus === "connected" ? "success" : bridgeStatus === "disconnected" ? "error" : "info"}>
+                {bridgeStatus === "connected" ? "Connected" : bridgeStatus === "disconnected" ? "Disconnected" : "Unknown"}
+              </StatusBadge>
+            </div>
             <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)", marginBottom: "var(--space-6)" }}>
-              Extract support drawings from source DWG and create a new DWG.
+              Extract support drawings from source DWG. Types are auto-detected from your Excel uploads.
             </p>
 
-            {/* Input DWG file */}
+            {/* Input DWG file path */}
             <div style={{ marginBottom: "var(--space-4)" }}>
-              <label style={labelStyle}>Input DWG File</label>
-              <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                <input
-                  value={inputDwg}
-                  onChange={(e) => setInputDwg(e.target.value)}
-                  placeholder="Select source .dwg file"
-                  style={{ ...inputStyle, flex: 1 }}
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const [handle] = await (window as any).showOpenFilePicker({
-                        types: [{ description: "DWG Files", accept: { "application/acad": [".dwg"] } }],
-                        multiple: false,
-                      })
-                      setInputDwg(handle.name)
-                    } catch {
-                      // User cancelled or API not supported — fallback to manual input
-                      const path = prompt("Enter input DWG file path:")
-                      if (path) setInputDwg(path)
-                    }
-                  }}
-                  style={{
-                    height: 40, padding: "0 var(--space-4)",
-                    fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600,
-                    color: "var(--color-primary)", background: "var(--color-primary-soft)",
-                    border: "1px solid var(--color-primary)", borderRadius: "var(--radius-md)",
-                    cursor: "pointer", whiteSpace: "nowrap",
-                  }}
-                >
-                  Browse
-                </button>
-              </div>
+              <label style={labelStyle}>Source DWG File Path (on AutoCAD server)</label>
+              <input
+                value={inputDwg}
+                onChange={(e) => setInputDwg(e.target.value)}
+                placeholder="e.g. D:\drawings\supports.dwg"
+                style={inputStyle}
+              />
             </div>
 
-            {/* Output DWG folder */}
+            {/* Output DWG folder path */}
             <div style={{ marginBottom: "var(--space-4)" }}>
-              <label style={labelStyle}>Output DWG Folder</label>
-              <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                <input
-                  value={outputDwg}
-                  onChange={(e) => setOutputDwg(e.target.value)}
-                  placeholder="Select output folder"
-                  style={{ ...inputStyle, flex: 1 }}
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const handle = await (window as any).showDirectoryPicker()
-                      setOutputDwg(handle.name)
-                    } catch {
-                      const path = prompt("Enter output folder path:")
-                      if (path) setOutputDwg(path)
-                    }
-                  }}
-                  style={{
-                    height: 40, padding: "0 var(--space-4)",
-                    fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600,
-                    color: "var(--color-primary)", background: "var(--color-primary-soft)",
-                    border: "1px solid var(--color-primary)", borderRadius: "var(--radius-md)",
-                    cursor: "pointer", whiteSpace: "nowrap",
-                  }}
-                >
-                  Browse
-                </button>
-              </div>
+              <label style={labelStyle}>Output Folder Path (on AutoCAD server)</label>
+              <input
+                value={outputDwg}
+                onChange={(e) => setOutputDwg(e.target.value)}
+                placeholder="e.g. D:\output\extracted"
+                style={inputStyle}
+              />
             </div>
 
-            {/* Support type dropdown */}
+            {/* Detected types — read only */}
             <div style={{ marginBottom: "var(--space-6)" }}>
-              <label style={labelStyle}>Support Type to Extract</label>
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                style={{ ...inputStyle, cursor: "pointer" }}
-              >
-                <option value="">Select type...</option>
-                {types.map((t) => (
-                  <option key={t.typeName} value={t.typeName}>{t.typeName}</option>
-                ))}
-                {/* Also show types from uploads if not in config */}
-                {Object.keys(typeCount).filter((t) => !types.some((tc) => tc.typeName === t)).map((t) => (
-                  <option key={t} value={t}>{t} (from uploads)</option>
-                ))}
-              </select>
+              <label style={labelStyle}>Support Types (auto-detected from Excel)</label>
+              {detectedTypes.length === 0 ? (
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-warning)" }}>
+                  No types detected. Upload an Excel file first.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                  {detectedTypes.map((t) => (
+                    <span key={t} style={{
+                      padding: "var(--space-1) var(--space-3)",
+                      background: "var(--color-primary-soft)",
+                      border: "1px solid var(--color-primary)",
+                      borderRadius: "var(--radius-md)",
+                      fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600,
+                      color: "var(--color-primary)",
+                    }}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Results */}
+            {runResult.length > 0 && (
+              <div style={{ marginBottom: "var(--space-4)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                {runResult.map((r) => (
+                  <div key={r.type} style={{
+                    display: "flex", alignItems: "center", gap: "var(--space-3)",
+                    padding: "var(--space-2) var(--space-3)",
+                    background: r.success ? "var(--color-success-soft)" : "var(--color-error-soft)",
+                    borderRadius: "var(--radius-sm)",
+                    borderLeft: `3px solid ${r.success ? "var(--color-success)" : "var(--color-error)"}`,
+                    fontFamily: "var(--font-body)", fontSize: "0.8125rem",
+                  }}>
+                    <StatusBadge variant={r.success ? "success" : "error"}>{r.type}</StatusBadge>
+                    <span style={{ color: "var(--color-text-muted)" }}>{r.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Buttons */}
             <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
-              <ActionButton variant="ghost" onClick={() => setShowRunPopup(false)} disabled={running}>
-                Cancel
+              <ActionButton variant="ghost" onClick={() => { setShowRunPopup(false); setRunResult([]) }} disabled={running}>
+                {runResult.length > 0 ? "Close" : "Cancel"}
               </ActionButton>
               <ActionButton
                 variant="primary"
                 loading={running}
-                disabled={!inputDwg.trim() || !outputDwg.trim() || !selectedType}
+                disabled={!inputDwg.trim() || !outputDwg.trim() || detectedTypes.length === 0}
                 onClick={handleRunConfirm}
                 iconLeft={!running ? <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5 3l8 5-8 5V3z" fill="currentColor" /></svg> : undefined}
               >
-                {running ? "Running..." : "Confirm & Run"}
+                {running ? `Extracting ${detectedTypes.length} types...` : `Run for ${detectedTypes.length} type${detectedTypes.length !== 1 ? "s" : ""}`}
               </ActionButton>
             </div>
           </div>
