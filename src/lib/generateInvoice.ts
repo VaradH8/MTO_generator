@@ -42,22 +42,19 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Blob> {
   try {
     const logoRes = await fetch("/logo.png")
     const logoBuf = await logoRes.arrayBuffer()
-    const logoB64 = btoa(String.fromCharCode(...new Uint8Array(logoBuf)))
-    // Get original dimensions to preserve aspect ratio
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const i = new Image()
-      i.onload = () => resolve(i)
-      i.onerror = reject
-      i.src = `data:image/png;base64,${logoB64}`
-    })
-    const aspect = img.naturalWidth / img.naturalHeight
-    let logoW: number, logoH: number
-    if (aspect >= 1) {
-      logoH = logoMaxH
-      logoW = logoMaxH * aspect
-    } else {
-      logoW = logoMaxH
-      logoH = logoMaxH / aspect
+    const bytes = new Uint8Array(logoBuf)
+    const logoB64 = btoa(String.fromCharCode(...bytes))
+    // Read PNG dimensions from IHDR chunk (bytes 16-23)
+    let pngW = 0, pngH = 0
+    if (bytes[0] === 0x89 && bytes[1] === 0x50) { // PNG signature
+      pngW = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19]
+      pngH = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]
+    }
+    let logoW = logoMaxH, logoH = logoMaxH
+    if (pngW > 0 && pngH > 0) {
+      const aspect = pngW / pngH
+      if (aspect >= 1) { logoH = logoMaxH; logoW = logoMaxH * aspect }
+      else { logoW = logoMaxH; logoH = logoMaxH / aspect }
     }
     logoBoxW = logoW + logoPad * 2
     logoBoxH = logoH + logoPad * 2

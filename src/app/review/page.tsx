@@ -122,7 +122,7 @@ export default function ReviewPage() {
     setGroupedSupports(grouped)
     setApprovalSubmitted(false)
     router.push("/output")
-  }, [rows, setGroupedSupports, router])
+  }, [rows, setGroupedSupports, setApprovalSubmitted, router])
 
   const buildExportData = () => rows.map((row) => {
     const base: Record<string, string> = { "Support Tag Name": row.supportTagName, "Discipline": row.discipline, "Type": row.type, "A": row.a, "B": row.b, "C": row.c, "D": row.d, "Total": row.total }
