@@ -3,6 +3,7 @@
 import { ReactNode, useState } from "react"
 import Sidebar from "./Sidebar"
 import TopBar from "./TopBar"
+import GlobalDropZone from "./GlobalDropZone"
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -43,21 +44,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {/* Spacer for fixed topbar height */}
         <div style={{ height: 49, flexShrink: 0 }} />
 
-        <main
-          className="animate-fade-in"
-          style={{
-            flex: 1,
-            maxWidth: "var(--container-max)",
-            paddingLeft: "var(--container-pad-x)",
-            paddingRight: "var(--container-pad-x)",
-            paddingTop: "var(--space-6)",
-            paddingBottom: "var(--space-10)",
-            margin: "0 auto",
-            width: "100%",
-          }}
-        >
-          {children}
-        </main>
+        <GlobalDropZone>
+          <main
+            className="animate-fade-in"
+            style={{
+              flex: 1,
+              maxWidth: "var(--container-max)",
+              paddingLeft: "var(--container-pad-x)",
+              paddingRight: "var(--container-pad-x)",
+              paddingTop: "var(--space-6)",
+              paddingBottom: "var(--space-10)",
+              margin: "0 auto",
+              width: "100%",
+            }}
+          >
+            {children}
+          </main>
+        </GlobalDropZone>
       </div>
 
       <style>{`

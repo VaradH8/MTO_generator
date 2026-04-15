@@ -17,6 +17,21 @@ export default function ApprovalsPage() {
   const { addEntry } = useBilling()
   const { addActivity } = useProjects()
   const [notification, setNotification] = useState("")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  const handleBulkApprove = () => {
+    for (const id of selected) handleApprove(id)
+    setSelected(new Set())
+  }
+
+  const handleBulkReject = () => {
+    for (const id of selected) handleReject(id)
+    setSelected(new Set())
+  }
 
   if (user?.role !== "admin") {
     return (
@@ -92,6 +107,13 @@ export default function ApprovalsPage() {
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
           Pending Review ({pending.length})
         </h2>
+        {selected.size > 0 && (
+          <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
+            <ActionButton variant="primary" size="sm" onClick={handleBulkApprove}> Approve {selected.size} selected</ActionButton>
+            <ActionButton variant="destructive" size="sm" onClick={handleBulkReject}>Reject {selected.size} selected</ActionButton>
+            <ActionButton variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear</ActionButton>
+          </div>
+        )}
 
         {pending.length === 0 ? (
           <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-faint)", textAlign: "center", padding: "var(--space-6)" }}>
@@ -107,6 +129,7 @@ export default function ApprovalsPage() {
                   borderRadius: "var(--radius-md)", borderLeft: "3px solid var(--color-warning)",
                   display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap",
                 }}>
+                  <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggleSelect(a.id)} style={{ accentColor: "var(--color-primary)" }} />
                   <div style={{ flex: 1, minWidth: 200 }}>
                     <div style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)" }}>
                       {a.projectName || "Unknown Project"}

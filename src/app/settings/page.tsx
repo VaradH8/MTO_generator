@@ -1,13 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useSettings } from "@/context/SettingsContext"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import type { MasterTypeItem } from "@/types/support"
 
 export default function SettingsPage() {
-  const { masterItems, addItem, removeItem, renameItem, masterTypes, addMasterType, updateMasterType, removeMasterType } = useSettings()
+  const { masterItems, addItem, removeItem, renameItem, masterTypes, addMasterType, updateMasterType, removeMasterType, pdfConfig, updatePdfConfig } = useSettings()
 
   // Item state
   const [newItemName, setNewItemName] = useState("")
@@ -24,6 +24,49 @@ export default function SettingsPage() {
   const [editTypeItems, setEditTypeItems] = useState<MasterTypeItem[]>([])
   const [confirmDeleteType, setConfirmDeleteType] = useState<string | null>(null)
   const [typeError, setTypeError] = useState("")
+
+  // Backup state
+  const importFileRef = useRef<HTMLInputElement>(null)
+
+  const BACKUP_KEYS = ["spg_projects", "spg_billing", "spg_approvals", "spg_settings", "spg_support"] as const
+
+  const handleExportAll = () => {
+    const data: Record<string, unknown> = {}
+    for (const key of BACKUP_KEYS) {
+      const raw = localStorage.getItem(key)
+      if (raw !== null) {
+        try { data[key] = JSON.parse(raw) } catch { data[key] = raw }
+      }
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `spg_backup_${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result as string)
+        if (typeof data !== "object" || data === null) { alert("Invalid backup file."); return }
+        for (const key of Object.keys(data)) {
+          localStorage.setItem(key, typeof data[key] === "string" ? data[key] : JSON.stringify(data[key]))
+        }
+        window.location.reload()
+      } catch {
+        alert("Failed to parse backup file. Ensure it is valid JSON.")
+      }
+    }
+    reader.readAsText(file)
+    // Reset input so re-selecting same file works
+    e.target.value = ""
+  }
 
   // ─── Item handlers ───
   const handleAddItem = () => {
@@ -153,6 +196,25 @@ export default function SettingsPage() {
         Manage master items and support type templates.
       </p>
 
+      {/* ─── Data Backup ─── */}
+      <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+          Data Backup
+        </h2>
+        <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-4)" }}>
+          Export all application data as a JSON file or import a previous backup.
+        </p>
+        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+          <ActionButton variant="primary" size="sm" onClick={handleExportAll}
+            iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+          >Export All Data</ActionButton>
+          <ActionButton variant="secondary" size="sm" onClick={() => importFileRef.current?.click()}
+            iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 14V6m0 0l-3 3m3-3l3 3M3 3h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+          >Import Data</ActionButton>
+          <input ref={importFileRef} type="file" accept=".json" onChange={handleImportData} style={{ display: "none" }} />
+        </div>
+      </div>
+
       {/* ─── Master Items ─── */}
       <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
@@ -192,7 +254,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ─── Master Type Templates ─── */}
-      <div style={{ ...cardStyle }}>
+      <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginBottom: "var(--space-4)" }}>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", flex: 1 }}>
             Master Type Config ({masterTypes.length})
@@ -267,6 +329,53 @@ export default function SettingsPage() {
               </div>
             )
           })}
+        </div>
+      </div>
+
+      {/* ─── PDF Template ─── */}
+      <div style={{ ...cardStyle }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+          PDF Template
+        </h2>
+        <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-5)" }}>
+          Customize the header, footer, and primary color used when generating PDF documents.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+          <div>
+            <label style={labelStyle}>Header Text</label>
+            <input
+              value={pdfConfig.headerText}
+              onChange={(e) => updatePdfConfig({ headerText: e.target.value })}
+              placeholder="Support MTO"
+              style={{ ...inputStyle, maxWidth: 400 }}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Footer Text</label>
+            <input
+              value={pdfConfig.footerText}
+              onChange={(e) => updatePdfConfig({ footerText: e.target.value })}
+              placeholder="Support MTO Generator"
+              style={{ ...inputStyle, maxWidth: 400 }}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Primary Color</label>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+              <input
+                type="color"
+                value={pdfConfig.primaryColor}
+                onChange={(e) => updatePdfConfig({ primaryColor: e.target.value })}
+                style={{ width: 40, height: 36, padding: 2, border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", cursor: "pointer", background: "var(--color-surface)" }}
+              />
+              <input
+                value={pdfConfig.primaryColor}
+                onChange={(e) => updatePdfConfig({ primaryColor: e.target.value })}
+                placeholder="#1F3CA8"
+                style={{ ...inputStyle, maxWidth: 120, fontFamily: "monospace" }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>

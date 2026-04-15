@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import FileUploadZone from "@/components/FileUploadZone"
 import ActionButton from "@/components/ActionButton"
 import { parseExcelFile } from "@/lib/parseExcel"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjects } from "@/context/ProjectContext"
+import * as XLSX from "xlsx"
 import type { ParseResult, SupportRow, SupportTypeConfig } from "@/types/support"
 
 type FileStatus = "idle" | "validating" | "valid" | "invalid"
@@ -51,9 +52,39 @@ export default function UploadPage() {
   const [selectedType, setSelectedType] = useState("")
   const [classification, setClassification] = useState<"internal" | "external">("internal")
 
+  // Additional files for batch upload
+  const [additionalFiles, setAdditionalFiles] = useState<File[]>([])
+  const [additionalParseResults, setAdditionalParseResults] = useState<ParseResult[]>([])
+  const [parsingAdditional, setParsingAdditional] = useState(false)
+
+  // Duplicate detection
+  const [duplicateWarning, setDuplicateWarning] = useState<{ count: number; names: string[] } | null>(null)
+
   // Confirmation popup
   const [showConfirm, setShowConfirm] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
+
+  const handleDownloadTemplate = useCallback(() => {
+    if (!project) return
+    const baseColsBefore = ["Support Tag Name", "Discipline", "Type", "A", "B", "C", "D"]
+    const itemCols: string[] = []
+    for (const tc of typeConfigs) {
+      for (const item of tc.items) {
+        const nameCol = `${item.itemName} Name`
+        const qtyCol = `${item.itemName} Qty`
+        if (!itemCols.includes(nameCol)) itemCols.push(nameCol)
+        if (!itemCols.includes(qtyCol)) itemCols.push(qtyCol)
+      }
+    }
+    const baseColsAfter = ["X", "Y", "Z", "X-Grid", "Y-Grid", "Remarks"]
+    const headers = [...baseColsBefore, ...itemCols, ...baseColsAfter]
+    const ws = XLSX.utils.aoa_to_sheet([headers])
+    // Set column widths
+    ws["!cols"] = headers.map((h) => ({ wch: Math.max(h.length + 2, 12) }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Template")
+    XLSX.writeFile(wb, `${project.clientName.replace(/[^a-zA-Z0-9]/g, "_")}_template.xlsx`)
+  }, [project, typeConfigs])
 
   const handleFileSelect = (f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase()
@@ -113,6 +144,37 @@ export default function UploadPage() {
         initial[col] = ""
       }
       setMissingValues(initial)
+
+      // Check for duplicates against existing project uploads
+      if (project) {
+        const existingKeys = new Set<string>()
+        for (const u of (project.uploads || [])) {
+          for (const k of (u.supportKeys || [])) existingKeys.add(k)
+        }
+        const parsedKeys = result.validation.rows.map((r) => r.supportTagName).filter(Boolean)
+        const dupes = parsedKeys.filter((k) => existingKeys.has(k))
+        if (dupes.length > 0) {
+          setDuplicateWarning({ count: dupes.length, names: dupes.slice(0, 10) })
+        } else {
+          setDuplicateWarning(null)
+        }
+      }
+
+      // Parse additional files if any
+      if (additionalFiles.length > 0) {
+        setParsingAdditional(true)
+        const extraResults: ParseResult[] = []
+        for (const af of additionalFiles) {
+          try {
+            const extraResult = await parseExcelFile(af)
+            extraResults.push(extraResult)
+          } catch {
+            // skip files that fail to parse
+          }
+        }
+        setAdditionalParseResults(extraResults)
+        setParsingAdditional(false)
+      }
     } catch {
       setStatus("invalid")
       setError("Failed to parse file. Check that the sheet contains valid support data.")
@@ -137,7 +199,13 @@ export default function UploadPage() {
     const overrides: Record<string, string> = { ...missingValues }
     if (typeMissing && selectedType) overrides["type"] = selectedType
 
-    const rows: SupportRow[] = parseResult.validation.rows.map((row) => {
+    // Merge rows from main file and additional files
+    const allRawRows = [
+      ...parseResult.validation.rows,
+      ...additionalParseResults.flatMap((r) => r.validation.rows),
+    ]
+
+    const rows: SupportRow[] = allRawRows.map((row) => {
       const updated = { ...row }
       const rowType = updated.type || overrides["type"] || ""
       const remainingMissing: string[] = []
@@ -217,7 +285,22 @@ export default function UploadPage() {
     setGroupedSupports(grouped)
     setCurrentProject(projectId, project?.clientName || "")
     const supportKeys = rows.map((r) => r.supportTagName).filter(Boolean)
-    addUploadRecord(projectId, { fileName: file?.name || "Excel Upload", rowCount: rows.length, types: Array.from(types), supportKeys, classification })
+
+    // Duplicate detection: compare against existing uploads in the project
+    const existingKeys = new Set<string>()
+    for (const u of (project?.uploads || [])) {
+      for (const k of (u.supportKeys || [])) existingKeys.add(k)
+    }
+    const duplicates = supportKeys.filter((k) => existingKeys.has(k))
+    if (duplicates.length > 0) {
+      setDuplicateWarning({ count: duplicates.length, names: duplicates.slice(0, 10) })
+      // Non-blocking: still proceed after showing warning
+    } else {
+      setDuplicateWarning(null)
+    }
+
+    const fileNames = [file?.name || "Excel Upload", ...additionalFiles.map((f) => f.name)].join(", ")
+    addUploadRecord(projectId, { fileName: fileNames, rowCount: rows.length, types: Array.from(types), supportKeys, classification })
     router.push("/review")
   }
 
@@ -276,6 +359,14 @@ export default function UploadPage() {
         <>
           <FileUploadZone file={file} status={status} errorMessage={error} onFileSelect={handleFileSelect} onFileRemove={handleFileRemove} />
 
+          {hasProjectTypes && (
+            <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "var(--space-4)" }}>
+              <ActionButton variant="secondary" size="sm" onClick={handleDownloadTemplate}
+                iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+              >Download Template</ActionButton>
+            </div>
+          )}
+
           {!showConfigForm && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--space-6)" }}>
               <ActionButton variant="primary" disabled={status !== "valid"} loading={parsing} onClick={handleParse}
@@ -287,8 +378,52 @@ export default function UploadPage() {
           {showConfigForm && (
             <div style={{ marginTop: "var(--space-6)", display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
               <div style={{ padding: "var(--space-3) var(--space-4)", background: "var(--color-primary-soft)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--color-primary)", fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)" }}>
-                Parsed <strong>{parseResult!.validation.totalRows} rows</strong>
+                Parsed <strong>{parseResult!.validation.totalRows + additionalParseResults.reduce((s, r) => s + r.validation.totalRows, 0)} rows</strong>
+                {additionalParseResults.length > 0 && <> from <strong>{1 + additionalParseResults.length} files</strong></>}
                 {excelTypes.length > 0 && <> with types: <strong>{excelTypes.join(", ")}</strong></>}.
+              </div>
+
+              {/* Duplicate detection warning */}
+              {duplicateWarning && (
+                <div style={{ padding: "var(--space-3) var(--space-4)", background: "var(--color-warning-soft)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--color-warning)", fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)" }}>
+                  <strong>{duplicateWarning.count} duplicate support tag{duplicateWarning.count !== 1 ? "s" : ""}</strong> found against existing uploads in this project
+                  {duplicateWarning.names.length > 0 && (
+                    <span>: {duplicateWarning.names.join(", ")}{duplicateWarning.count > 10 ? "..." : ""}</span>
+                  )}
+                  <span style={{ display: "block", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginTop: "var(--space-1)" }}>
+                    These will be counted as revisions. You can still proceed.
+                  </span>
+                </div>
+              )}
+
+              {/* Additional Files for batch upload */}
+              <div style={cardStyle}>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-3)" }}>Additional Files</h2>
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+                  Optionally add more Excel files to merge their rows with the primary file.
+                </p>
+                <input
+                  type="file"
+                  multiple
+                  accept=".xlsx,.xls"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || [])
+                    setAdditionalFiles(files)
+                    setAdditionalParseResults([])
+                  }}
+                  style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)" }}
+                />
+                {additionalFiles.length > 0 && (
+                  <div style={{ marginTop: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                    {additionalFiles.length} additional file{additionalFiles.length !== 1 ? "s" : ""} selected
+                    {additionalParseResults.length > 0 && (
+                      <span style={{ color: "var(--color-success)", marginLeft: "var(--space-2)" }}>
+                        ({additionalParseResults.reduce((s, r) => s + r.validation.totalRows, 0)} rows parsed)
+                      </span>
+                    )}
+                    {parsingAdditional && <span style={{ marginLeft: "var(--space-2)" }}>Parsing...</span>}
+                  </div>
+                )}
               </div>
 
               {/* Internal / External classification */}

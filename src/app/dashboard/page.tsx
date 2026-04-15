@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/context/AuthContext"
 import { useProjects } from "@/context/ProjectContext"
@@ -13,7 +14,67 @@ export default function DashboardPage() {
   const { projects, activeProject } = useProjects()
   const { currentTotalSupports, currentRevisionCount, currentAmount } = useBilling()
 
+  const [search, setSearch] = useState("")
+
   const isAdmin = user?.role === "admin"
+
+  /* ── Aggregated type distribution across all projects ── */
+  const typeDistribution = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const p of projects) {
+      for (const u of p.uploads || []) {
+        for (const t of u.types || []) {
+          counts[t] = (counts[t] || 0) + 1
+        }
+      }
+    }
+    return counts
+  }, [projects])
+
+  const typeMax = useMemo(() => Math.max(1, ...Object.values(typeDistribution)), [typeDistribution])
+
+  /* ── Internal vs External counts ── */
+  const { internalTotal, externalTotal } = useMemo(() => {
+    let internal = 0
+    let external = 0
+    for (const p of projects) {
+      for (const u of p.uploads || []) {
+        const count = u.supportKeys?.length || 0
+        if (u.classification === "external") external += count
+        else internal += count
+      }
+    }
+    return { internalTotal: internal, externalTotal: external }
+  }, [projects])
+
+  const ieTotal = Math.max(1, internalTotal + externalTotal)
+
+  /* ── Filtered projects for search ── */
+  const filteredProjects = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    if (!q) return projects
+    return projects.filter((p) => {
+      if (p.clientName.toLowerCase().includes(q)) return true
+      for (const u of p.uploads || []) {
+        for (const k of u.supportKeys || []) {
+          if (k.toLowerCase().includes(q)) return true
+        }
+      }
+      return false
+    })
+  }, [projects, search])
+
+  /* ── Recent activity across all projects ── */
+  const recentActivity = useMemo(() => {
+    const entries: Array<{ projectName: string; entry: (typeof projects)[0]["activityLog"][0] }> = []
+    for (const p of projects) {
+      for (const e of p.activityLog || []) {
+        entries.push({ projectName: p.clientName, entry: e })
+      }
+    }
+    entries.sort((a, b) => new Date(b.entry.timestamp).getTime() - new Date(a.entry.timestamp).getTime())
+    return entries.slice(0, 20)
+  }, [projects])
 
   const cardStyle: React.CSSProperties = {
     background: "var(--color-surface)",
@@ -97,6 +158,92 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {/* Type Distribution Chart */}
+      {Object.keys(typeDistribution).length > 0 && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Type Distribution
+          </h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            {Object.entries(typeDistribution)
+              .sort(([, a], [, b]) => b - a)
+              .map(([typeName, count]) => (
+                <div key={typeName} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text)", minWidth: 60 }}>{typeName}</span>
+                  <div style={{ flex: 1, height: 18, background: "var(--color-surface-2)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${Math.round((count / typeMax) * 100)}%`,
+                        height: "100%",
+                        background: "var(--color-primary)",
+                        borderRadius: "var(--radius-sm)",
+                        transition: "width 0.4s ease-out",
+                        minWidth: 2,
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", minWidth: 28, textAlign: "right" }}>{count}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Internal vs External */}
+      {(internalTotal > 0 || externalTotal > 0) && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Internal vs External
+          </h2>
+          <div style={{ display: "flex", height: 28, borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--color-surface-2)" }}>
+            {internalTotal > 0 && (
+              <div
+                style={{
+                  width: `${Math.round((internalTotal / ieTotal) * 100)}%`,
+                  height: "100%",
+                  background: "var(--color-primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "width 0.4s ease-out",
+                  minWidth: internalTotal > 0 ? 40 : 0,
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "#fff", fontWeight: 600 }}>
+                  Internal {internalTotal}
+                </span>
+              </div>
+            )}
+            {externalTotal > 0 && (
+              <div
+                style={{
+                  width: `${Math.round((externalTotal / ieTotal) * 100)}%`,
+                  height: "100%",
+                  background: "var(--color-warning)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "width 0.4s ease-out",
+                  minWidth: externalTotal > 0 ? 40 : 0,
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "#fff", fontWeight: 600 }}>
+                  External {externalTotal}
+                </span>
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--space-2)" }}>
+            <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
+              {Math.round((internalTotal / ieTotal) * 100)}% internal
+            </span>
+            <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
+              {Math.round((externalTotal / ieTotal) * 100)}% external
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
@@ -129,12 +276,31 @@ export default function DashboardPage() {
 
       {/* Projects with progress */}
       {projects.length > 0 && (
-        <div style={cardStyle}>
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
             Projects
           </h2>
+          <input
+            type="text"
+            placeholder="Search by client name or support tag..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "var(--space-2) var(--space-3)",
+              fontFamily: "var(--font-body)",
+              fontSize: "0.875rem",
+              color: "var(--color-text)",
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+              marginBottom: "var(--space-4)",
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-            {projects.map((project) => {
+            {filteredProjects.map((project) => {
               // Calculate done supports (unique keys across all uploads)
               const doneKeys = new Set<string>()
               const internalKeys = new Set<string>()
@@ -187,6 +353,60 @@ export default function DashboardPage() {
                 </div>
               )
             })}
+          </div>
+          {filteredProjects.length === 0 && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+              No projects match your search.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Recent Activity */}
+      {recentActivity.length > 0 && (
+        <div style={cardStyle}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Recent Activity
+          </h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            {recentActivity.map(({ projectName, entry }) => (
+              <div
+                key={entry.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-3)",
+                  padding: "var(--space-2) var(--space-3)",
+                  background: "var(--color-surface-2)",
+                  borderRadius: "var(--radius-md)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", minWidth: 130 }}>
+                  {new Date(entry.timestamp).toLocaleString()}
+                </span>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)", minWidth: 100 }}>
+                  {projectName}
+                </span>
+                <StatusBadge
+                  variant={
+                    entry.action === "upload" ? "info"
+                    : entry.action === "approve" ? "success"
+                    : entry.action === "reject" ? "error"
+                    : entry.action === "bill" ? "warning"
+                    : "info"
+                  }
+                >
+                  {entry.action}
+                </StatusBadge>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text)", flex: 1 }}>
+                  {entry.detail}
+                </span>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)" }}>
+                  {entry.user}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}

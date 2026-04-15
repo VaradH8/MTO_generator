@@ -5,6 +5,18 @@ import type { MasterItem, MasterTypeConfig, MasterTypeItem } from "@/types/suppo
 
 const STORAGE_KEY = "spg_settings"
 
+export interface PdfConfig {
+  headerText: string
+  footerText: string
+  primaryColor: string
+}
+
+const DEFAULT_PDF_CONFIG: PdfConfig = {
+  headerText: "Support MTO",
+  footerText: "Support MTO Generator",
+  primaryColor: "#1F3CA8",
+}
+
 const DEFAULT_ITEMS: MasterItem[] = [
   { id: "bracket", name: "Bracket" },
   { id: "nut", name: "Nut" },
@@ -24,6 +36,8 @@ interface SettingsContextType {
   addMasterType: (config: Omit<MasterTypeConfig, "id">) => MasterTypeConfig
   updateMasterType: (id: string, updates: Partial<Omit<MasterTypeConfig, "id">>) => void
   removeMasterType: (id: string) => void
+  pdfConfig: PdfConfig
+  updatePdfConfig: (updates: Partial<PdfConfig>) => void
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined)
@@ -31,6 +45,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [masterItems, setMasterItems] = useState<MasterItem[]>(DEFAULT_ITEMS)
   const [masterTypes, setMasterTypes] = useState<MasterTypeConfig[]>([])
+  const [pdfConfig, setPdfConfig] = useState<PdfConfig>(DEFAULT_PDF_CONFIG)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
@@ -40,6 +55,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const data = JSON.parse(raw)
         if (data.masterItems?.length) setMasterItems(data.masterItems)
         if (data.masterTypes) setMasterTypes(data.masterTypes)
+        if (data.pdfConfig) setPdfConfig({ ...DEFAULT_PDF_CONFIG, ...data.pdfConfig })
       }
     } catch { /* ignore */ }
     setLoaded(true)
@@ -47,9 +63,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (loaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ masterItems, masterTypes }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ masterItems, masterTypes, pdfConfig }))
     }
-  }, [masterItems, masterTypes, loaded])
+  }, [masterItems, masterTypes, pdfConfig, loaded])
 
   const addItem = useCallback((name: string): MasterItem => {
     const item: MasterItem = { id: generateId(), name: name.trim() }
@@ -79,10 +95,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setMasterTypes((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
+  const updatePdfConfig = useCallback((updates: Partial<PdfConfig>) => {
+    setPdfConfig((prev) => ({ ...prev, ...updates }))
+  }, [])
+
   return (
     <SettingsContext.Provider value={{
       masterItems, addItem, removeItem, renameItem,
       masterTypes, addMasterType, updateMasterType, removeMasterType,
+      pdfConfig, updatePdfConfig,
     }}>
       {children}
     </SettingsContext.Provider>

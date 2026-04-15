@@ -67,6 +67,9 @@ export default function ProjectDetailPage() {
   const [runResult, setRunResult] = useState<{ type: string; success: boolean; message: string }[]>([])
   const [bridgeStatus, setBridgeStatus] = useState<"unknown" | "connected" | "disconnected">("unknown")
 
+  // Upload comparison state
+  const [showComparison, setShowComparison] = useState(false)
+
   if (!project) {
     return <EmptyState title="Project not found" message="This project doesn't exist." action={{ label: "Go to Projects", onClick: () => router.push("/projects") }} />
   }
@@ -189,6 +192,50 @@ export default function ProjectDetailPage() {
           Run AutoCAD
         </ActionButton>
         <ActionButton variant="ghost" onClick={() => router.push("/projects")}>Configure Types</ActionButton>
+        <ActionButton variant="secondary" onClick={() => {
+          const done = allKeys.size
+          const range = project.supportRange || 0
+          const remaining = range > 0 ? Math.max(0, range - done) : 0
+          const lines: string[] = [
+            "Project Report",
+            `Project Name,${project.clientName}`,
+            `Created By,${project.createdBy}`,
+            `Created At,${new Date(project.createdAt).toLocaleDateString()}`,
+            `Report Date,${new Date().toLocaleDateString()}`,
+            "",
+            "Summary",
+            `Total Supports Done,${done}`,
+            `Remaining,${remaining}`,
+            `Total Range,${range}`,
+            `Internal Supports,${internalCount}`,
+            `External Supports,${externalCount}`,
+            "",
+            "Type Breakdown",
+            "Type,Upload Count",
+            ...Object.entries(typeCount).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t},${c}`),
+            "",
+            "Upload History",
+            "Upload #,Date,File,Rows,New,Revisions",
+            ...uploads.map((u, i) => [
+              i + 1,
+              new Date(u.uploadedAt).toLocaleDateString(),
+              `"${u.fileName}"`,
+              u.rowCount,
+              u.newSupports ?? 0,
+              u.revisions ?? 0,
+            ].join(",")),
+          ]
+          const csv = lines.join("\n")
+          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement("a")
+          link.href = url
+          link.download = `${project.clientName.replace(/[^a-zA-Z0-9]/g, "_")}_report.csv`
+          link.click()
+          URL.revokeObjectURL(url)
+        }}
+          iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+        >Export Report</ActionButton>
       </div>
 
       {/* Stats */}
@@ -310,7 +357,14 @@ export default function ProjectDetailPage() {
 
       {/* Upload History */}
       <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
-        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>Upload History</h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)", flexWrap: "wrap", gap: "var(--space-3)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>Upload History</h2>
+          {uploads.length >= 2 && (
+            <ActionButton variant="secondary" size="sm" onClick={() => setShowComparison((v) => !v)}>
+              {showComparison ? "Hide Comparison" : "Compare Last 2"}
+            </ActionButton>
+          )}
+        </div>
         {uploads.length === 0 ? (
           <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-faint)", textAlign: "center", padding: "var(--space-4)" }}>No uploads yet.</p>
         ) : (
@@ -327,12 +381,79 @@ export default function ProjectDetailPage() {
             ))}
           </div>
         )}
+        {/* Upload Comparison */}
+        {showComparison && uploads.length >= 2 && (() => {
+          const prev = uploads[uploads.length - 2]
+          const latest = uploads[uploads.length - 1]
+          const prevKeys = new Set(prev.supportKeys || [])
+          const latestKeys = new Set(latest.supportKeys || [])
+          const newKeys = Array.from(latestKeys).filter((k) => !prevKeys.has(k))
+          const commonKeys = Array.from(latestKeys).filter((k) => prevKeys.has(k))
+          const removedKeys = Array.from(prevKeys).filter((k) => !latestKeys.has(k))
+          return (
+            <div style={{ marginTop: "var(--space-4)", padding: "var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)" }}>
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-3)" }}>
+                Comparison: Upload #{uploads.length - 1} vs #{uploads.length}
+              </h3>
+              <div style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap", marginBottom: "var(--space-3)" }}>
+                <div>
+                  <StatusBadge variant="success">{newKeys.length} new</StatusBadge>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginLeft: "var(--space-1)" }}>support keys added</span>
+                </div>
+                <div>
+                  <StatusBadge variant="warning">{commonKeys.length} common</StatusBadge>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginLeft: "var(--space-1)" }}>support keys (revisions)</span>
+                </div>
+                <div>
+                  <StatusBadge variant="error">{removedKeys.length} removed</StatusBadge>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginLeft: "var(--space-1)" }}>not in latest upload</span>
+                </div>
+              </div>
+              {newKeys.length > 0 && (
+                <div style={{ marginBottom: "var(--space-2)" }}>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, color: "var(--color-success)", textTransform: "uppercase" }}>New keys: </span>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>{newKeys.slice(0, 20).join(", ")}{newKeys.length > 20 ? "..." : ""}</span>
+                </div>
+              )}
+              {commonKeys.length > 0 && (
+                <div>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, color: "var(--color-warning)", textTransform: "uppercase" }}>Common keys: </span>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>{commonKeys.slice(0, 20).join(", ")}{commonKeys.length > 20 ? "..." : ""}</span>
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Activity Log */}
       {activity.length > 0 && (
         <div style={cardStyle}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>Activity Log</h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)", flexWrap: "wrap", gap: "var(--space-3)" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>Activity Log</h2>
+            <ActionButton variant="secondary" size="sm" onClick={() => {
+              const csvHeader = "Date,Action,Detail,User"
+              const csvRows = activity.map((a) => {
+                const escape = (s: string) => `"${s.replace(/"/g, '""')}"`
+                return [
+                  escape(new Date(a.timestamp).toLocaleString()),
+                  escape(a.action),
+                  escape(a.detail),
+                  escape(a.user),
+                ].join(",")
+              })
+              const csv = [csvHeader, ...csvRows].join("\n")
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement("a")
+              link.href = url
+              link.download = `${project.clientName.replace(/[^a-zA-Z0-9]/g, "_")}_activity_log.csv`
+              link.click()
+              URL.revokeObjectURL(url)
+            }}
+              iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+            >Download CSV</ActionButton>
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
             {activity.slice(0, 20).map((a) => (
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-2) var(--space-3)", fontSize: "0.8125rem" }}>
