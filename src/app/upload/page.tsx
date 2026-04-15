@@ -49,6 +49,7 @@ export default function UploadPage() {
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [missingValues, setMissingValues] = useState<Record<string, string>>({})
   const [selectedType, setSelectedType] = useState("")
+  const [classification, setClassification] = useState<"internal" | "external">("internal")
 
   // Confirmation popup
   const [showConfirm, setShowConfirm] = useState(false)
@@ -216,7 +217,7 @@ export default function UploadPage() {
     setGroupedSupports(grouped)
     setCurrentProject(projectId, project?.clientName || "")
     const supportKeys = rows.map((r) => r.supportTagName).filter(Boolean)
-    addUploadRecord(projectId, { fileName: file?.name || "Excel Upload", rowCount: rows.length, types: Array.from(types), supportKeys })
+    addUploadRecord(projectId, { fileName: file?.name || "Excel Upload", rowCount: rows.length, types: Array.from(types), supportKeys, classification })
     router.push("/review")
   }
 
@@ -288,6 +289,28 @@ export default function UploadPage() {
               <div style={{ padding: "var(--space-3) var(--space-4)", background: "var(--color-primary-soft)", borderRadius: "var(--radius-sm)", borderLeft: "3px solid var(--color-primary)", fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)" }}>
                 Parsed <strong>{parseResult!.validation.totalRows} rows</strong>
                 {excelTypes.length > 0 && <> with types: <strong>{excelTypes.join(", ")}</strong></>}.
+              </div>
+
+              {/* Internal / External classification */}
+              <div style={cardStyle}>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>Support Classification</h2>
+                <div style={{ display: "flex", gap: "var(--space-3)" }}>
+                  {(["internal", "external"] as const).map((opt) => (
+                    <label key={opt} style={{
+                      display: "flex", alignItems: "center", gap: "var(--space-2)",
+                      padding: "var(--space-2) var(--space-4)",
+                      background: classification === opt ? "var(--color-primary-soft)" : "var(--color-surface-2)",
+                      border: classification === opt ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                      borderRadius: "var(--radius-md)", cursor: "pointer",
+                      fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600,
+                      color: classification === opt ? "var(--color-primary)" : "var(--color-text-muted)",
+                      textTransform: "capitalize",
+                    }}>
+                      <input type="radio" name="classification" value={opt} checked={classification === opt} onChange={() => setClassification(opt)} style={{ accentColor: "var(--color-primary)" }} />
+                      {opt}
+                    </label>
+                  ))}
+                </div>
               </div>
 
               {typeMissing && (

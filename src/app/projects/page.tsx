@@ -15,7 +15,9 @@ export default function ProjectsPage() {
   const { projects, activeProject, setActiveProjectId, createProject, updateProject, deleteProject } = useProjects()
   const { masterItems, masterTypes, addMasterType } = useSettings()
   const [newClientName, setNewClientName] = useState("")
+  const [newSupportRange, setNewSupportRange] = useState("")
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editRange, setEditRange] = useState("")
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [deleteInput, setDeleteInput] = useState("")
   const [editTypes, setEditTypes] = useState<SupportTypeConfig[]>([])
@@ -30,9 +32,12 @@ export default function ProjectsPage() {
 
   const handleCreate = () => {
     if (!newClientName.trim()) return
-    const project = createProject(newClientName.trim(), user?.username)
+    const range = parseInt(newSupportRange) || 0
+    const project = createProject(newClientName.trim(), user?.username, range)
     setNewClientName("")
+    setNewSupportRange("")
     setEditingId(project.id)
+    setEditRange(String(range || ""))
     setEditTypes([])
   }
 
@@ -40,6 +45,7 @@ export default function ProjectsPage() {
     const project = projects.find((p) => p.id === projectId)
     if (!project) return
     setEditingId(projectId)
+    setEditRange(String(project.supportRange || ""))
     setEditTypes(project.supportTypes.map((t) => ({ ...t, items: t.items?.map((i) => ({ ...i })) || [] })))
   }
 
@@ -50,7 +56,7 @@ export default function ProjectsPage() {
     const dupes = names.filter((n, i) => names.indexOf(n) !== i)
     if (dupes.length > 0) { setSaveError(`Duplicate type: ${dupes[0]}`); return }
     setSaveError("")
-    updateProject(editingId, { supportTypes: cleaned })
+    updateProject(editingId, { supportTypes: cleaned, supportRange: parseInt(editRange) || 0 })
     setEditingId(null)
     setEditTypes([])
   }
@@ -147,6 +153,9 @@ export default function ProjectsPage() {
           <div style={{ flex: 1 }}>
             <input value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="Client name" style={inputStyle} onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
           </div>
+          <div style={{ width: 140 }}>
+            <input type="number" min="0" value={newSupportRange} onChange={(e) => setNewSupportRange(e.target.value)} placeholder="Support range" style={inputStyle} onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
+          </div>
           <ActionButton variant="primary" size="sm" onClick={handleCreate} disabled={!newClientName.trim()}>Create</ActionButton>
         </div>
       </div>
@@ -163,6 +172,7 @@ export default function ProjectsPage() {
               <span style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>{project.clientName}</span>
               <StatusBadge variant="info">by {project.createdBy || "unknown"}</StatusBadge>
               <StatusBadge variant="info">{project.supportTypes.length} types</StatusBadge>
+              {project.supportRange > 0 && <StatusBadge variant="warning">Range: {project.supportRange}</StatusBadge>}
               {isActive && <StatusBadge variant="success">Active</StatusBadge>}
               <span style={{ flex: 1 }} />
               {!isEditing && (
@@ -195,6 +205,12 @@ export default function ProjectsPage() {
             {/* Type config editor */}
             {isEditing && (
               <div>
+                {/* Support Range */}
+                <div style={{ marginBottom: "var(--space-4)" }}>
+                  <label style={labelStyle}>Support Range (total expected)</label>
+                  <input type="number" min="0" value={editRange} onChange={(e) => setEditRange(e.target.value)} placeholder="e.g. 100" style={{ ...inputStyle, maxWidth: 160 }} />
+                </div>
+
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>Support Types</h3>
 
                 {/* Current types */}

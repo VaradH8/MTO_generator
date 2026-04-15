@@ -14,7 +14,7 @@ interface ProjectContextType {
   activeProject: Project | null
   setActiveProjectId: (id: string | null) => void
   createProject: (clientName: string, createdBy?: string) => Project
-  updateProject: (id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes">>) => void
+  updateProject: (id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange">>) => void
   deleteProject: (id: string) => void
   /** Returns { newSupports, revisions } after detecting duplicates */
   addUploadRecord: (projectId: string, record: Omit<UploadRecord, "id" | "uploadedAt" | "newSupports" | "revisions">) => { newSupports: number; revisions: number }
@@ -50,10 +50,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   const activeProject = projects.find((p) => p.id === activeProjectId) || null
 
-  const createProject = useCallback((clientName: string, createdBy?: string): Project => {
+  const createProject = useCallback((clientName: string, createdBy?: string, supportRange?: number): Project => {
     const project: Project = {
       id: generateId(), clientName, createdBy: createdBy || "unknown",
-      createdAt: new Date().toISOString(), supportTypes: [], uploads: [],
+      createdAt: new Date().toISOString(), supportRange: supportRange || 0, supportTypes: [], uploads: [],
       activityLog: [{ id: generateId(), timestamp: new Date().toISOString(), user: createdBy || "unknown", action: "create", detail: `Project "${clientName}" created` }],
     }
     setProjects((prev) => [...prev, project])
@@ -61,7 +61,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return project
   }, [])
 
-  const updateProject = useCallback((id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes">>) => {
+  const updateProject = useCallback((id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange">>) => {
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
   }, [])
 

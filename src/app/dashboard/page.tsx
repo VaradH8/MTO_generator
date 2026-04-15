@@ -127,35 +127,56 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Recent projects */}
+      {/* Projects with progress */}
       {projects.length > 0 && (
         <div style={cardStyle}>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
             Projects
           </h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--space-3)",
-                  padding: "var(--space-3) var(--space-4)",
-                  background: project.id === activeProject?.id ? "var(--color-primary-soft)" : "var(--color-surface-2)",
-                  borderRadius: "var(--radius-md)",
-                  borderLeft: project.id === activeProject?.id ? "3px solid var(--color-primary)" : "none",
-                }}
-              >
-                <span style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)", flex: 1 }}>
-                  {project.clientName}
-                </span>
-                <StatusBadge variant="info">{project.supportTypes.length} types</StatusBadge>
-                {project.id === activeProject?.id && (
-                  <StatusBadge variant="success">Active</StatusBadge>
-                )}
-              </div>
-            ))}
+            {projects.map((project) => {
+              // Calculate done supports (unique keys across all uploads)
+              const doneKeys = new Set<string>()
+              for (const u of (project.uploads || [])) {
+                for (const k of (u.supportKeys || [])) doneKeys.add(k)
+              }
+              const done = doneKeys.size
+              const range = project.supportRange || 0
+              const remaining = range > 0 ? Math.max(0, range - done) : 0
+              const pct = range > 0 ? Math.min(100, Math.round((done / range) * 100)) : 0
+
+              return (
+                <div
+                  key={project.id}
+                  onClick={() => router.push(`/projects/${project.id}`)}
+                  style={{
+                    padding: "var(--space-4)",
+                    background: project.id === activeProject?.id ? "var(--color-primary-soft)" : "var(--color-surface-2)",
+                    borderRadius: "var(--radius-md)",
+                    borderLeft: project.id === activeProject?.id ? "3px solid var(--color-primary)" : "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginBottom: range > 0 ? "var(--space-3)" : 0 }}>
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)", flex: 1 }}>
+                      {project.clientName}
+                    </span>
+                    <StatusBadge variant="info">{project.supportTypes.length} types</StatusBadge>
+                    {range > 0 && <StatusBadge variant="success">{done} done</StatusBadge>}
+                    {range > 0 && <StatusBadge variant="warning">{remaining} remaining</StatusBadge>}
+                    {project.id === activeProject?.id && <StatusBadge variant="success">Active</StatusBadge>}
+                  </div>
+                  {range > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                      <div style={{ flex: 1, height: 6, background: "var(--color-surface)", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: pct >= 100 ? "var(--color-success)" : "var(--color-primary)", borderRadius: 3, transition: "width 0.5s ease-out" }} />
+                      </div>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", minWidth: 35, textAlign: "right" }}>{pct}%</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

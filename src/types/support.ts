@@ -85,6 +85,7 @@ export interface UploadRecord {
   newSupports: number         // first-time supports
   revisions: number           // duplicate supports (counted as revision)
   supportKeys: string[]       // all support tag names in this upload
+  classification: "internal" | "external"  // high-level support classification
 }
 
 export interface ActivityEntry {
@@ -100,6 +101,7 @@ export interface Project {
   clientName: string
   createdBy: string
   createdAt: string
+  supportRange: number        // total expected supports (e.g. 100)
   supportTypes: SupportTypeConfig[]
   uploads: UploadRecord[]
   activityLog: ActivityEntry[]
