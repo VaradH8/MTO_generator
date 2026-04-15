@@ -9,18 +9,12 @@ export interface AuthUser {
   role: UserRole
 }
 
-const USERS: { username: string; password: string; role: UserRole }[] = [
-  { username: "Varad", password: "Admin123", role: "admin" },
-  { username: "User", password: "default123", role: "user" },
-  { username: "Client", password: "client123", role: "client" },
-]
-
 const AUTH_KEY = "spg_auth"
 
 interface AuthContextType {
   isAuthenticated: boolean
   user: AuthUser | null
-  login: (username: string, password: string) => boolean
+  login: (username: string, password: string) => Promise<boolean>
   logout: () => void
 }
 
@@ -49,15 +43,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, loaded])
 
-  const login = (username: string, password: string): boolean => {
-    const found = USERS.find(
-      (u) => u.username === username && u.password === password
-    )
-    if (found) {
-      setUser({ username: found.username, role: found.role })
-      return true
+  const login = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      })
+      if (res.ok) {
+        const data: AuthUser = await res.json()
+        setUser({ username: data.username, role: data.role })
+        return true
+      }
+      return false
+    } catch {
+      return false
     }
-    return false
   }
 
   const logout = () => setUser(null)

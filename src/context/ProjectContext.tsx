@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import type { Project, SupportTypeConfig, UploadRecord, ActivityEntry } from "@/types/support"
 
-const STORAGE_KEY = "spg_projects"
+const ACTIVE_PROJECT_KEY = "spg_active_project_id"
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -32,52 +32,124 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
 
+  // On mount: restore activeProjectId from localStorage, fetch projects from API
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const data = JSON.parse(raw)
-        setProjects(data.projects || [])
-        setActiveProjectId(data.activeProjectId || null)
-      }
+      const savedId = localStorage.getItem(ACTIVE_PROJECT_KEY)
+      if (savedId) setActiveProjectId(savedId)
     } catch { /* ignore */ }
-    setLoaded(true)
+
+    fetch("/api/projects")
+      .then((res) => {
+        if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
+        return res.json()
+      })
+      .then((data: Project[]) => {
+        setProjects(data)
+      })
+      .catch((err) => {
+        console.error("Failed to fetch projects:", err)
+      })
+      .finally(() => {
+        setLoaded(true)
+      })
   }, [])
 
+  // Persist activeProjectId to localStorage whenever it changes
   useEffect(() => {
-    if (loaded) localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, activeProjectId }))
-  }, [projects, activeProjectId, loaded])
+    if (!loaded) return
+    try {
+      if (activeProjectId) {
+        localStorage.setItem(ACTIVE_PROJECT_KEY, activeProjectId)
+      } else {
+        localStorage.removeItem(ACTIVE_PROJECT_KEY)
+      }
+    } catch { /* ignore */ }
+  }, [activeProjectId, loaded])
 
   const activeProject = projects.find((p) => p.id === activeProjectId) || null
 
   const createProject = useCallback((clientName: string, createdBy?: string, supportRange?: number): Project => {
+    // Build an optimistic project object
+    const optimisticId = generateId()
     const project: Project = {
-      id: generateId(), clientName, createdBy: createdBy || "unknown",
-      createdAt: new Date().toISOString(), supportRange: supportRange || 0, supportTypes: [], uploads: [],
-      activityLog: [{ id: generateId(), timestamp: new Date().toISOString(), user: createdBy || "unknown", action: "create", detail: `Project "${clientName}" created` }],
+      id: optimisticId,
+      clientName,
+      createdBy: createdBy || "unknown",
+      createdAt: new Date().toISOString(),
+      supportRange: supportRange || 0,
+      supportTypes: [],
+      uploads: [],
+      activityLog: [],
     }
+
+    // Optimistic update
     setProjects((prev) => [...prev, project])
-    setActiveProjectId(project.id)
+    setActiveProjectId(optimisticId)
+
+    // Fire API call
+    fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientName, createdBy: createdBy || "unknown", supportRange: supportRange ?? 0 }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`POST /api/projects failed: ${res.status}`)
+        return res.json()
+      })
+      .then((created: Project) => {
+        // Replace the optimistic project with the server response
+        setProjects((prev) => prev.map((p) => (p.id === optimisticId ? created : p)))
+        setActiveProjectId(created.id)
+      })
+      .catch((err) => {
+        console.error("Failed to create project:", err)
+      })
+
     return project
   }, [])
 
   const updateProject = useCallback((id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange">>) => {
+    // Optimistic update
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
+
+    // Fire API call
+    fetch(`/api/projects/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`PUT /api/projects/${id} failed: ${res.status}`)
+      })
+      .catch((err) => {
+        console.error("Failed to update project:", err)
+      })
   }, [])
 
   const deleteProject = useCallback((id: string) => {
+    // Optimistic update
     setProjects((prev) => prev.filter((p) => p.id !== id))
     setActiveProjectId((prev) => (prev === id ? null : prev))
+
+    // Fire API call
+    fetch(`/api/projects/${id}`, { method: "DELETE" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`DELETE /api/projects/${id} failed: ${res.status}`)
+      })
+      .catch((err) => {
+        console.error("Failed to delete project:", err)
+      })
   }, [])
 
   const addUploadRecord = useCallback((projectId: string, record: Omit<UploadRecord, "id" | "uploadedAt" | "newSupports" | "revisions">) => {
+    // Compute optimistic newSupports/revisions from local state
     let newSupports = 0
     let revisions = 0
 
     setProjects((prev) => prev.map((p) => {
       if (p.id !== projectId) return p
 
-      // Get all previously uploaded support keys for this project
       const existingKeys = new Set<string>()
       for (const upload of (p.uploads || [])) {
         for (const key of (upload.supportKeys || [])) {
@@ -85,39 +157,100 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Count new vs revision
       for (const key of record.supportKeys) {
         if (existingKeys.has(key)) revisions++
         else newSupports++
       }
 
-      const full: UploadRecord = {
-        ...record, id: generateId(), uploadedAt: new Date().toISOString(),
-        newSupports, revisions,
+      const optimisticUpload: UploadRecord = {
+        ...record,
+        id: generateId(),
+        uploadedAt: new Date().toISOString(),
+        newSupports,
+        revisions,
       }
 
       return {
         ...p,
-        uploads: [...(p.uploads || []), full],
+        uploads: [...(p.uploads || []), optimisticUpload],
         activityLog: [...(p.activityLog || []), {
-          id: generateId(), timestamp: new Date().toISOString(),
-          user: "system", action: "upload" as const,
+          id: generateId(),
+          timestamp: new Date().toISOString(),
+          user: "system",
+          action: "upload" as const,
           detail: `Uploaded ${record.fileName}: ${newSupports} new, ${revisions} revisions`,
         }],
       }
     }))
 
+    // Fire API call — server recomputes newSupports/revisions authoritatively
+    fetch(`/api/projects/${projectId}/uploads`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: record.fileName,
+        rowCount: record.rowCount,
+        types: record.types,
+        supportKeys: record.supportKeys,
+        classification: record.classification,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`POST /api/projects/${projectId}/uploads failed: ${res.status}`)
+        return res.json()
+      })
+      .then((serverUpload: UploadRecord) => {
+        // Replace the optimistic upload with the server response
+        setProjects((prev) => prev.map((p) => {
+          if (p.id !== projectId) return p
+          // Replace the last upload (the optimistic one) with server data
+          const uploads = [...(p.uploads || [])]
+          const optimisticIdx = uploads.findIndex(
+            (u) => u.fileName === serverUpload.fileName && u.newSupports === newSupports && u.revisions === revisions
+          )
+          if (optimisticIdx >= 0) {
+            uploads[optimisticIdx] = serverUpload
+          }
+          return { ...p, uploads }
+        }))
+      })
+      .catch((err) => {
+        console.error("Failed to add upload record:", err)
+      })
+
     return { newSupports, revisions }
   }, [])
 
   const addActivity = useCallback((projectId: string, user: string, action: ActivityEntry["action"], detail: string) => {
+    // Optimistic update
+    const optimisticEntry: ActivityEntry = {
+      id: generateId(),
+      timestamp: new Date().toISOString(),
+      user,
+      action,
+      detail,
+    }
+
     setProjects((prev) => prev.map((p) => {
       if (p.id !== projectId) return p
       return {
         ...p,
-        activityLog: [...(p.activityLog || []), { id: generateId(), timestamp: new Date().toISOString(), user, action, detail }],
+        activityLog: [...(p.activityLog || []), optimisticEntry],
       }
     }))
+
+    // Fire API call
+    fetch(`/api/projects/${projectId}/activity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user, action, detail }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`POST /api/projects/${projectId}/activity failed: ${res.status}`)
+      })
+      .catch((err) => {
+        console.error("Failed to add activity:", err)
+      })
   }, [])
 
   const getTypeNames = useCallback((projectId: string): string[] => {

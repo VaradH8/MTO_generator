@@ -17,9 +17,9 @@ export default function LoginForm({ onBack }: LoginFormProps) {
   const [password, setPassword] = useState("")
   const [error, setError] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const success = login(username, password)
+    const success = await login(username, password)
     if (!success) setError(true)
   }
 

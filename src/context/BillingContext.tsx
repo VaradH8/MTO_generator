@@ -3,8 +3,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import type { BillingState, BillingEntry, BillingCycle } from "@/types/support"
 
-const STORAGE_KEY = "spg_billing"
-
 const EMPTY_STATE: BillingState = { currentEntries: [], history: [] }
 
 /**
@@ -56,26 +54,32 @@ export function BillingProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<BillingState>(EMPTY_STATE)
   const [loaded, setLoaded] = useState(false)
 
+  // Fetch billing data from API on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        setState(JSON.parse(raw))
+    let cancelled = false
+    async function fetchBilling() {
+      try {
+        const res = await fetch("/api/billing")
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled) {
+            setState({
+              currentEntries: data.currentEntries ?? [],
+              history: data.history ?? [],
+            })
+          }
+        }
+      } catch {
+        // If API fails, start with empty state
+      } finally {
+        if (!cancelled) setLoaded(true)
       }
-    } catch {
-      // ignore
     }
-    setLoaded(true)
+    fetchBilling()
+    return () => { cancelled = true }
   }, [])
 
-  useEffect(() => {
-    if (loaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    }
-  }, [state, loaded])
-
   // Count unique supports and revisions
-  // A revision = a support key that appears more than once across entries
   const keyOccurrences: Record<string, number> = {}
   for (const entry of state.currentEntries) {
     for (const key of entry.supportKeys) {
@@ -84,7 +88,6 @@ export function BillingProvider({ children }: { children: ReactNode }) {
   }
   const currentUniqueKeys = Object.keys(keyOccurrences)
   const currentTotalSupports = currentUniqueKeys.length
-  // Revision count = total times a support was repeated (occurrences - 1 for each key that appeared more than once)
   const currentRevisionCount = Object.values(keyOccurrences).reduce(
     (sum, count) => sum + Math.max(0, count - 1), 0
   )
@@ -93,18 +96,35 @@ export function BillingProvider({ children }: { children: ReactNode }) {
   const allTimeTotalSupports =
     state.history.reduce((s, c) => s + c.totalSupports, 0) + currentTotalSupports
 
+  // Optimistic: update local state immediately, then POST to API
   const addEntry = useCallback((partial: Omit<BillingEntry, "id" | "date">) => {
     const entry: BillingEntry = {
       ...partial,
       id: generateId(),
       date: new Date().toISOString(),
     }
+
+    // Optimistic update
     setState((prev) => ({
       ...prev,
       currentEntries: [...prev.currentEntries, entry],
     }))
+
+    // Fire-and-forget POST to persist
+    fetch("/api/billing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    }).catch(() => {
+      // Rollback on failure
+      setState((prev) => ({
+        ...prev,
+        currentEntries: prev.currentEntries.filter((e) => e.id !== entry.id),
+      }))
+    })
   }, [])
 
+  // Optimistic: clear current entries and add a cycle, then POST to API
   const markAsBilled = useCallback(() => {
     setState((prev) => {
       if (prev.currentEntries.length === 0) return prev
@@ -128,16 +148,40 @@ export function BillingProvider({ children }: { children: ReactNode }) {
         amountDue: calculateAmount(totalSupports, revisionCount),
       }
 
-      return {
+      const optimisticState: BillingState = {
         currentEntries: [],
         history: [...prev.history, cycle],
       }
+
+      // Fire-and-forget POST, reconcile with server response
+      fetch("/api/billing/mark-billed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json()
+            // Reconcile with authoritative server state
+            setState({
+              currentEntries: data.currentEntries ?? [],
+              history: data.history ?? [],
+            })
+          }
+        })
+        .catch(() => {
+          // Rollback: restore the entries and remove the optimistic cycle
+          setState((rollback) => ({
+            currentEntries: cycle.entries,
+            history: rollback.history.filter((c) => c.id !== cycle.id),
+          }))
+        })
+
+      return optimisticState
     })
   }, [])
 
   const clearAll = useCallback(() => {
     setState(EMPTY_STATE)
-    localStorage.removeItem(STORAGE_KEY)
   }, [])
 
   return (

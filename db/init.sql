@@ -48,11 +48,12 @@ CREATE TABLE IF NOT EXISTS master_type_items (
 -- ── Projects ────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS projects (
-  id          VARCHAR(50) PRIMARY KEY,
-  client_name VARCHAR(255) NOT NULL,
-  created_by  VARCHAR(100) NOT NULL DEFAULT 'unknown',
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  is_active   BOOLEAN NOT NULL DEFAULT FALSE
+  id             VARCHAR(50) PRIMARY KEY,
+  client_name    VARCHAR(255) NOT NULL,
+  created_by     VARCHAR(100) NOT NULL DEFAULT 'unknown',
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  support_range  INTEGER NOT NULL DEFAULT 0,
+  is_active      BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- ── Project Support Types ───────────────────────────────────────────
@@ -83,8 +84,10 @@ CREATE TABLE IF NOT EXISTS uploads (
   row_count     INTEGER NOT NULL DEFAULT 0,
   types         JSONB NOT NULL DEFAULT '[]',
   support_keys  JSONB NOT NULL DEFAULT '[]',
-  new_supports  INTEGER NOT NULL DEFAULT 0,
-  revisions     INTEGER NOT NULL DEFAULT 0
+  new_supports    INTEGER NOT NULL DEFAULT 0,
+  revisions       INTEGER NOT NULL DEFAULT 0,
+  classification  VARCHAR(20) NOT NULL DEFAULT 'internal'
+                  CHECK (classification IN ('internal', 'external'))
 );
 
 -- ── Activity Log ────────────────────────────────────────────────────

@@ -1,9 +1,7 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
-import type { MasterItem, MasterTypeConfig, MasterTypeItem } from "@/types/support"
-
-const STORAGE_KEY = "spg_settings"
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react"
+import type { MasterItem, MasterTypeConfig } from "@/types/support"
 
 export interface PdfConfig {
   headerText: string
@@ -42,28 +40,50 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined)
 
+const SAVE_DEBOUNCE_MS = 500
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [masterItems, setMasterItems] = useState<MasterItem[]>(DEFAULT_ITEMS)
   const [masterTypes, setMasterTypes] = useState<MasterTypeConfig[]>([])
   const [pdfConfig, setPdfConfig] = useState<PdfConfig>(DEFAULT_PDF_CONFIG)
   const [loaded, setLoaded] = useState(false)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Fetch settings from API on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const data = JSON.parse(raw)
-        if (data.masterItems?.length) setMasterItems(data.masterItems)
-        if (data.masterTypes) setMasterTypes(data.masterTypes)
-        if (data.pdfConfig) setPdfConfig({ ...DEFAULT_PDF_CONFIG, ...data.pdfConfig })
+    let cancelled = false
+    async function fetchSettings() {
+      try {
+        const res = await fetch("/api/settings")
+        if (res.ok) {
+          const data = await res.json()
+          if (cancelled) return
+          if (data.masterItems?.length) setMasterItems(data.masterItems)
+          if (data.masterTypes) setMasterTypes(data.masterTypes)
+          if (data.pdfConfig) setPdfConfig({ ...DEFAULT_PDF_CONFIG, ...data.pdfConfig })
+        }
+      } catch {
+        /* use defaults on error */
       }
-    } catch { /* ignore */ }
-    setLoaded(true)
+      if (!cancelled) setLoaded(true)
+    }
+    fetchSettings()
+    return () => { cancelled = true }
   }, [])
 
+  // Debounced save to API whenever settings change
   useEffect(() => {
-    if (loaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ masterItems, masterTypes, pdfConfig }))
+    if (!loaded) return
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    debounceTimer.current = setTimeout(() => {
+      fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ masterItems, masterTypes, pdfConfig }),
+      }).catch(() => { /* silent */ })
+    }, SAVE_DEBOUNCE_MS)
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
     }
   }, [masterItems, masterTypes, pdfConfig, loaded])
 

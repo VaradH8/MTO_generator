@@ -3,8 +3,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import type { PdfApproval } from "@/types/support"
 
-const STORAGE_KEY = "spg_approvals"
-
 interface ApprovalContextType {
   approvals: PdfApproval[]
   pendingCount: number
@@ -21,42 +19,112 @@ function generateId(): string {
 
 export function ApprovalProvider({ children }: { children: ReactNode }) {
   const [approvals, setApprovals] = useState<PdfApproval[]>([])
-  const [loaded, setLoaded] = useState(false)
 
+  // On mount, fetch approvals from the API
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) setApprovals(JSON.parse(raw))
-    } catch { /* ignore */ }
-    setLoaded(true)
+    fetch("/api/approvals")
+      .then((res) => {
+        if (!res.ok) throw new Error(`GET /api/approvals failed: ${res.status}`)
+        return res.json()
+      })
+      .then((data: PdfApproval[]) => {
+        setApprovals(data)
+      })
+      .catch((err) => {
+        console.error("Failed to fetch approvals:", err)
+      })
   }, [])
-
-  useEffect(() => {
-    if (loaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(approvals))
-  }, [approvals, loaded])
 
   const pendingCount = approvals.filter((a) => a.status === "pending").length
 
   const submitForApproval = useCallback((partial: Omit<PdfApproval, "id" | "generatedAt" | "status">) => {
-    const approval: PdfApproval = {
+    // Build an optimistic approval object
+    const optimisticId = generateId()
+    const optimistic: PdfApproval = {
       ...partial,
-      id: generateId(),
+      id: optimisticId,
       generatedAt: new Date().toISOString(),
       status: "pending",
     }
-    setApprovals((prev) => [...prev, approval])
+
+    // Optimistic update
+    setApprovals((prev) => [optimistic, ...prev])
+
+    // Fire API call
+    fetch("/api/approvals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(partial),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`POST /api/approvals failed: ${res.status}`)
+        return res.json()
+      })
+      .then((created: PdfApproval) => {
+        // Replace optimistic entry with server response
+        setApprovals((prev) => prev.map((a) => (a.id === optimisticId ? created : a)))
+      })
+      .catch((err) => {
+        console.error("Failed to submit approval:", err)
+      })
   }, [])
 
   const approve = useCallback((id: string, reviewerName: string) => {
+    // Optimistic update
     setApprovals((prev) =>
-      prev.map((a) => a.id === id ? { ...a, status: "approved" as const, reviewedBy: reviewerName, reviewedAt: new Date().toISOString() } : a)
+      prev.map((a) =>
+        a.id === id
+          ? { ...a, status: "approved" as const, reviewedBy: reviewerName, reviewedAt: new Date().toISOString() }
+          : a
+      )
     )
+
+    // Fire API call
+    fetch(`/api/approvals/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "approve", reviewerName }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`PUT /api/approvals/${id} failed: ${res.status}`)
+        return res.json()
+      })
+      .then((updated: PdfApproval) => {
+        // Replace with server response
+        setApprovals((prev) => prev.map((a) => (a.id === id ? updated : a)))
+      })
+      .catch((err) => {
+        console.error("Failed to approve:", err)
+      })
   }, [])
 
   const reject = useCallback((id: string, reviewerName: string) => {
+    // Optimistic update
     setApprovals((prev) =>
-      prev.map((a) => a.id === id ? { ...a, status: "rejected" as const, reviewedBy: reviewerName, reviewedAt: new Date().toISOString() } : a)
+      prev.map((a) =>
+        a.id === id
+          ? { ...a, status: "rejected" as const, reviewedBy: reviewerName, reviewedAt: new Date().toISOString() }
+          : a
+      )
     )
+
+    // Fire API call
+    fetch(`/api/approvals/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reject", reviewerName }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`PUT /api/approvals/${id} failed: ${res.status}`)
+        return res.json()
+      })
+      .then((updated: PdfApproval) => {
+        // Replace with server response
+        setApprovals((prev) => prev.map((a) => (a.id === id ? updated : a)))
+      })
+      .catch((err) => {
+        console.error("Failed to reject:", err)
+      })
   }, [])
 
   return (
