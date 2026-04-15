@@ -15,11 +15,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { rows, rowCount } = await pool.query(
-      `SELECT username, role, password FROM users WHERE username = $1`,
+      `SELECT username, role, password_hash FROM users WHERE username = $1`,
       [username]
     )
 
-    if (!rowCount || rows[0].password !== password) {
+    if (!rowCount || rows[0].password_hash !== password) {
       return NextResponse.json(
         { error: "Invalid username or password" },
         { status: 401 }
