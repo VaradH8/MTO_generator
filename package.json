@@ -15,9 +15,9 @@
     "jspdf-autotable": "^5.0.7",
     "jszip": "^3.10.1",
     "next": "16.2.2",
+    "pg": "^8.20.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "pg": "^8.13.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
