@@ -13,7 +13,7 @@ interface ProjectContextType {
   projects: Project[]
   activeProject: Project | null
   setActiveProjectId: (id: string | null) => void
-  createProject: (clientName: string, createdBy?: string) => Project
+  createProject: (clientName: string, createdBy?: string, supportRange?: number) => Project
   updateProject: (id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange">>) => void
   deleteProject: (id: string) => void
   /** Returns { newSupports, revisions } after detecting duplicates */
