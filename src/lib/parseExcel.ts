@@ -68,7 +68,7 @@ for (const k of LENGTH_KEYS) {
  * value applied to every row.
  */
 const USER_FILLABLE_FIELDS = [
-  "slNo", "level", "tagNumber", "type", "withPlate", "withoutPlate",
+  "level", "tagNumber", "type", "withPlate", "withoutPlate",
 ]
 
 export async function parseExcelFile(file: File): Promise<ParseResult> {

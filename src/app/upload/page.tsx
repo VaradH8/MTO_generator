@@ -14,7 +14,7 @@ import type { ParseResult, SupportRow, SupportTypeConfig, LengthKey } from "@/ty
 type FileStatus = "idle" | "validating" | "valid" | "invalid"
 
 const FIELD_LABELS: Record<string, string> = {
-  slNo: "SL No", level: "Level", tagNumber: "Tag Number", type: "Type",
+  level: "Level", tagNumber: "Tag Number", type: "Type",
   withPlate: "With Plate", withoutPlate: "Without Plate",
 }
 
@@ -198,8 +198,11 @@ export default function UploadPage() {
       ...additionalParseResults.flatMap((r) => r.validation.rows),
     ]
 
-    const rows: SupportRow[] = allRawRows.map((row) => {
+    const rows: SupportRow[] = allRawRows.map((row, mergedIdx) => {
       const updated: SupportRow = { ...row, lengths: { ...row.lengths }, itemQtys: {} }
+      // Auto-number slNo 1..N across merged rows unless the input sheet
+      // provided an explicit value.
+      updated.slNo = row.slNo.trim() || String(mergedIdx + 1)
       const remainingMissing: string[] = []
 
       // Apply overrides from missing columns form
