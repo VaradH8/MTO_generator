@@ -11,7 +11,7 @@ const BORDER: [number, number, number] = [201, 210, 228]
 
 /** Meta columns that appear before the LENGTH block. */
 const PRE_LENGTH: { key: keyof SupportRow; label: string }[] = [
-  { key: "siNo", label: "SI NO" },
+  { key: "slNo", label: "SL NO" },
   { key: "level", label: "LEVEL" },
   { key: "tagNumber", label: "TAG NUMBER" },
   { key: "type", label: "TYPE" },

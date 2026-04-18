@@ -14,9 +14,8 @@ import type { ParseResult, SupportRow, SupportTypeConfig, LengthKey } from "@/ty
 type FileStatus = "idle" | "validating" | "valid" | "invalid"
 
 const FIELD_LABELS: Record<string, string> = {
-  siNo: "SI No", level: "Level", tagNumber: "Tag Number", type: "Type",
+  slNo: "SL No", level: "Level", tagNumber: "Tag Number", type: "Type",
   withPlate: "With Plate", withoutPlate: "Without Plate",
-  ...Object.fromEntries(LENGTH_KEYS.map((k) => [`lengths.${k}`, k.toUpperCase()])),
 }
 
 function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
@@ -71,7 +70,7 @@ export default function UploadPage() {
     if (!project) return
     // Input template: meta cols, then length cols A..P, then remarks.
     // Item qtys are filled from project config, not from the input Excel.
-    const baseCols = ["SI No", "Level", "Tag Number", "Type", "With Plate", "Without Plate"]
+    const baseCols = ["SL No", "Level", "Tag Number", "Type", "With Plate", "Without Plate"]
     const lengthCols = LENGTH_KEYS.map((k) => k.toUpperCase())
     const headers = [...baseCols, ...lengthCols, "Remarks"]
     const ws = XLSX.utils.aoa_to_sheet([headers])

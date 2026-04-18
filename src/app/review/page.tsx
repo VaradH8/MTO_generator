@@ -167,7 +167,7 @@ export default function ReviewPage() {
     }
     return rows.map((row) => {
       const base: Record<string, string> = {
-        "SI No": row.siNo,
+        "SL No": row.slNo,
         "Level": row.level,
         "Tag Number": row.tagNumber,
         "Type": row.type,

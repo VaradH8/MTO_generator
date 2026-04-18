@@ -15,7 +15,7 @@ import FindReplace from "./table/FindReplace"
 // ── Column definitions ──────────────────────────────────────────────────
 
 const PRE_LENGTH_COLS: ColumnDef[] = [
-  { key: "siNo", label: "SI No", minWidth: 60, align: "center", type: "text", getValue: (r) => r.siNo },
+  { key: "slNo", label: "SL No", minWidth: 60, align: "center", type: "text", getValue: (r) => r.slNo },
   { key: "level", label: "Level", minWidth: 60, align: "center", type: "text", getValue: (r) => r.level },
   { key: "tagNumber", label: "Tag Number", minWidth: 160, align: "left", type: "text", getValue: (r) => r.tagNumber },
   { key: "type", label: "Type", minWidth: 90, align: "left", type: "text", getValue: (r) => r.type },
@@ -433,7 +433,7 @@ export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRow
   const insertRow = useCallback((afterIndex: number) => {
     if (!onRowsChange) return
     const empty: SupportRow = {
-      siNo: "", level: "", tagNumber: "", type: "", withPlate: "", withoutPlate: "",
+      slNo: "", level: "", tagNumber: "", type: "", withPlate: "", withoutPlate: "",
       lengths: {}, total: "0", itemQtys: {}, remarks: "",
       _rowIndex: Date.now(), _hasErrors: true, _missingFields: ["tagNumber", "type"],
     }

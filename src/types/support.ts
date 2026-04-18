@@ -9,7 +9,7 @@ export interface ItemVariant {
 }
 
 export interface SupportRow {
-  siNo: string
+  slNo: string
   level: string
   tagNumber: string
   type: string

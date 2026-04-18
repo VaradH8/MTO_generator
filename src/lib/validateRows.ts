@@ -4,7 +4,7 @@ import type { SupportRow, ValidationResult, LengthKey } from "@/types/support"
 const REQUIRED_FIELDS = ["tagNumber", "type"] as const
 
 const OPTIONAL_WARN_FIELDS = [
-  "siNo", "level", "withPlate", "withoutPlate",
+  "slNo", "level", "withPlate", "withoutPlate",
   ...LENGTH_KEYS.map((k) => `lengths.${k}`),
 ]
 
@@ -42,7 +42,7 @@ export function validateRows(mappedRows: Record<string, unknown>[]): ValidationR
     }
 
     const row: SupportRow = {
-      siNo: String(raw["siNo"] ?? ""),
+      slNo: String(raw["slNo"] ?? ""),
       level: String(raw["level"] ?? ""),
       tagNumber: String(raw["tagNumber"] ?? ""),
       type: String(raw["type"] ?? ""),

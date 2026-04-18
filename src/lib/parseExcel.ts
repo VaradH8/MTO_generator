@@ -4,17 +4,18 @@ import { LENGTH_KEYS } from "@/types/support"
 import type { ParseResult } from "@/types/support"
 
 const HEADER_ALIASES: Record<string, string> = {
-  // siNo
-  "si no": "siNo",
-  "si no.": "siNo",
-  "sl no": "siNo",
-  "sl no.": "siNo",
-  "sr no": "siNo",
-  "sr no.": "siNo",
-  "s.no": "siNo",
-  "s no": "siNo",
-  "serial": "siNo",
-  "serial no": "siNo",
+  // slNo (serial number)
+  "sl no": "slNo",
+  "sl no.": "slNo",
+  "sl.no": "slNo",
+  "si no": "slNo",
+  "si no.": "slNo",
+  "sr no": "slNo",
+  "sr no.": "slNo",
+  "s.no": "slNo",
+  "s no": "slNo",
+  "serial": "slNo",
+  "serial no": "slNo",
 
   // level
   "level": "level",
@@ -61,22 +62,14 @@ for (const k of LENGTH_KEYS) {
 }
 
 /**
- * Fields the user can fill globally via the Missing Columns form.
- * total is auto-calculated; item quantities come from per-type config.
+ * Fields the user can fill globally via the Missing Columns form when the
+ * input sheet lacks a header for them. Lengths are intentionally omitted —
+ * they are per-row cells the user fills in the review table, not a single
+ * value applied to every row.
  */
 const USER_FILLABLE_FIELDS = [
-  "siNo", "level", "tagNumber", "type", "withPlate", "withoutPlate",
-  ...LENGTH_KEYS.map((k) => `lengths.${k}`),
+  "slNo", "level", "tagNumber", "type", "withPlate", "withoutPlate",
 ]
-
-/** All field keys present on a parsed row (before validation) */
-const ALL_FIELDS = [
-  "siNo", "level", "tagNumber", "type", "withPlate", "withoutPlate",
-  ...LENGTH_KEYS.map((k) => `lengths.${k}`),
-  "total", "remarks",
-]
-// Silences unused-export warning while keeping an auditable list.
-void ALL_FIELDS
 
 export async function parseExcelFile(file: File): Promise<ParseResult> {
   const buffer = await file.arrayBuffer()
