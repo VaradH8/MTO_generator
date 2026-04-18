@@ -1,76 +1,76 @@
-export interface RowItem {
-  name: string
+/** Length column keys a..p (16 max, matching the output schedule A..P) */
+export const LENGTH_KEYS = ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"] as const
+export type LengthKey = typeof LENGTH_KEYS[number]
+
+export interface ItemVariant {
+  /** Display label, e.g. "2(50,50)" or "(100,50)" */
+  label: string
   qty: string
 }
 
 export interface SupportRow {
-  supportTagName: string
-  discipline: string
+  siNo: string
+  level: string
+  tagNumber: string
   type: string
-  a: string
-  b: string
-  c: string
-  d: string
+  withPlate: string
+  withoutPlate: string
+  /** Partial map of length columns a..p → string values */
+  lengths: Partial<Record<LengthKey, string>>
   total: string
-  /** Dynamic items — length matches the configured items for this row's type */
-  items: RowItem[]
-  x: string
-  y: string
-  z: string
-  xGrid: string
-  yGrid: string
+  /**
+   * Quantities for items belonging to this row's type.
+   * Shape: { [itemName]: { "": qty } | { [variantLabel]: qty, ... } }
+   * Single-qty items use the empty-string key. Items with variants store
+   * one entry per variant label.
+   */
+  itemQtys: Record<string, Record<string, string>>
   remarks: string
   _rowIndex: number
   _hasErrors: boolean
   _missingFields: string[]
-  // Legacy fixed fields kept for compat with validateRows
-  item01Name: string
-  item01Qty: string
-  item02Name: string
-  item02Qty: string
-  item03Name: string
-  item03Qty: string
 }
 
 /* ─── Settings / Master Item List ─── */
 
 export interface MasterItem {
   id: string
-  name: string   // e.g. "Bracket", "Nut", "Bolt"
+  name: string
 }
 
-/** A pre-configured support type in Settings (master template) */
 export interface MasterTypeConfig {
   id: string
-  typeName: string           // e.g. "L01", "H02", "RF01"
+  typeName: string
   items: MasterTypeItem[]
 }
 
 export interface MasterTypeItem {
   itemId: string
   itemName: string
+  /** Used when `variants` is empty. Ignored when `variants` has entries. */
   qty: string
   make: string
   model: string
+  /** Optional size variants. When present, the item spans N output sub-columns. */
+  variants?: ItemVariant[]
 }
 
 /* ─── Project Types ─── */
 
-/** An item selected for a support type with qty, make, and model */
 export interface TypeItemConfig {
-  itemId: string    // references MasterItem.id
-  itemName: string  // denormalized for display
+  itemId: string
+  itemName: string
   qty: string
   make: string
   model: string
+  variants?: ItemVariant[]
 }
 
 export interface SupportTypeConfig {
-  typeName: string           // e.g. "L01", "H02", "RF01"
-  items: TypeItemConfig[]    // selected items with qty/make/model
+  typeName: string
+  items: TypeItemConfig[]
 }
 
-/** Legacy compat — kept for upload page finalize */
 export interface ItemConfig {
   name: string
   qty: string
@@ -82,10 +82,10 @@ export interface UploadRecord {
   uploadedAt: string
   rowCount: number
   types: string[]
-  newSupports: number         // first-time supports
-  revisions: number           // duplicate supports (counted as revision)
-  supportKeys: string[]       // all support tag names in this upload
-  classification: "internal" | "external"  // high-level support classification
+  newSupports: number
+  revisions: number
+  supportKeys: string[]
+  classification: "internal" | "external"
 }
 
 export interface ActivityEntry {
@@ -101,13 +101,12 @@ export interface Project {
   clientName: string
   createdBy: string
   createdAt: string
-  supportRange: number        // total expected supports (e.g. 100)
+  supportRange: number
   supportTypes: SupportTypeConfig[]
   uploads: UploadRecord[]
   activityLog: ActivityEntry[]
 }
 
-/** A PDF generation that needs admin approval before billing */
 export interface PdfApproval {
   id: string
   projectId: string
@@ -131,45 +130,37 @@ export interface ValidationResult {
   totalRows: number
   totalTypes: number
   missingFieldsCount: number
-  /** Count of required fields missing (supportTagName, type) — blocks PDF generation */
+  /** Count of required fields missing (tagNumber, type) — blocks PDF generation */
   requiredMissingCount: number
   rows: SupportRow[]
 }
 
 /* ─── Billing Types ─── */
 
-/** A single batch of supports added to the billing ledger */
 export interface BillingEntry {
   id: string
-  date: string                // ISO date string
-  fileName: string            // Excel file name
-  supportCount: number        // number of supports in this batch
-  supportKeys: string[]       // unique supportTagNames for dedup
-  types: Record<string, number> // { L01: 5, H02: 3 }
+  date: string
+  fileName: string
+  supportCount: number
+  supportKeys: string[]
+  types: Record<string, number>
 }
 
-/** A completed billing cycle — frozen once marked as billed */
 export interface BillingCycle {
   id: string
-  billedAt: string            // ISO date when marked as billed
+  billedAt: string
   entries: BillingEntry[]
   totalSupports: number
-  amountDue: number           // calculated from pricing tiers
+  amountDue: number
 }
 
-/** Full billing state persisted to localStorage */
 export interface BillingState {
-  /** Entries in the current (unbilled) cycle */
   currentEntries: BillingEntry[]
-  /** Past billing cycles that have been marked as billed */
   history: BillingCycle[]
 }
 
-/** Columns that exist in our schema but were not found in the Excel headers */
 export interface ParseResult {
   validation: ValidationResult
   missingColumns: string[]
   detectedHeaders: string[]
-  /** True if X, Y, Z columns were not found in Excel — show Datum Point config */
-  xyzMissing: boolean
 }

@@ -15,12 +15,11 @@ export async function GET(_req: NextRequest) {
   try {
     // Master items
     const { rows: itemRows } = await pool.query(
-      `SELECT id, item_name, category FROM master_items ORDER BY item_name`
+      `SELECT id, name FROM master_items ORDER BY name`
     )
     const masterItems = itemRows.map((r: any) => ({
       id: r.id,
-      itemName: r.item_name,
-      category: r.category,
+      name: r.name,
     }))
 
     // Master types with their items
@@ -30,15 +29,20 @@ export async function GET(_req: NextRequest) {
     const masterTypes = await Promise.all(
       typeRows.map(async (t: any) => {
         const { rows: typeItems } = await pool.query(
-          `SELECT id, item_name FROM master_type_items WHERE master_type_id = $1 ORDER BY item_name`,
+          `SELECT item_id, item_name, qty, make, model, variants
+             FROM master_type_items WHERE master_type_id = $1 ORDER BY item_name`,
           [t.id]
         )
         return {
           id: t.id,
           typeName: t.type_name,
           items: typeItems.map((i: any) => ({
-            id: i.id,
+            itemId: i.item_id,
             itemName: i.item_name,
+            qty: i.qty ?? "",
+            make: i.make ?? "",
+            model: i.model ?? "",
+            variants: Array.isArray(i.variants) && i.variants.length > 0 ? i.variants : undefined,
           })),
         }
       })
@@ -87,8 +91,8 @@ export async function PUT(req: NextRequest) {
       for (const item of masterItems) {
         const id = item.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
         await client.query(
-          `INSERT INTO master_items (id, item_name, category) VALUES ($1, $2, $3)`,
-          [id, item.itemName, item.category || null]
+          `INSERT INTO master_items (id, name) VALUES ($1, $2)`,
+          [id, item.name]
         )
       }
     }
@@ -105,10 +109,11 @@ export async function PUT(req: NextRequest) {
         )
         if (type.items) {
           for (const item of type.items) {
-            const itemId = item.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
+            const variantsJson = Array.isArray(item.variants) ? JSON.stringify(item.variants) : "[]"
             await client.query(
-              `INSERT INTO master_type_items (id, master_type_id, item_name) VALUES ($1, $2, $3)`,
-              [itemId, typeId, item.itemName]
+              `INSERT INTO master_type_items (master_type_id, item_id, item_name, qty, make, model, variants)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+              [typeId, item.itemId || "", item.itemName, item.qty || "", item.make || "", item.model || "", variantsJson]
             )
           }
         }

@@ -4,7 +4,7 @@ import { useState, useRef } from "react"
 import { useSettings } from "@/context/SettingsContext"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
-import type { MasterTypeItem } from "@/types/support"
+import type { MasterTypeItem, ItemVariant } from "@/types/support"
 
 export default function SettingsPage() {
   const { masterItems, addItem, removeItem, renameItem, masterTypes, addMasterType, updateMasterType, removeMasterType, pdfConfig, updatePdfConfig } = useSettings()
@@ -90,12 +90,25 @@ export default function SettingsPage() {
     setItems(items.map((i) => i.itemId === itemId ? { ...i, [field]: value } : i))
   }
 
+  const validateItemQtys = (items: MasterTypeItem[]): string | null => {
+    for (const item of items) {
+      if (item.variants && item.variants.length > 0) {
+        for (const v of item.variants) {
+          if (!v.label.trim()) return `${item.itemName}: variant label required`
+          if (!v.qty.trim()) return `${item.itemName} (${v.label}): qty required`
+        }
+      } else if (!item.qty?.trim()) {
+        return `${item.itemName} needs a quantity`
+      }
+    }
+    return null
+  }
+
   const handleSaveNewType = () => {
     if (!newTypeName.trim()) { setTypeError("Type name required"); return }
     if (masterTypes.some((t) => t.typeName.toLowerCase() === newTypeName.trim().toLowerCase())) { setTypeError("Type already exists"); return }
-    for (const item of newTypeItems) {
-      if (!item.qty?.trim()) { setTypeError(`${item.itemName} needs a quantity`); return }
-    }
+    const err = validateItemQtys(newTypeItems)
+    if (err) { setTypeError(err); return }
     setTypeError("")
     addMasterType({ typeName: newTypeName.trim(), items: newTypeItems })
     setAddingType(false)
@@ -113,9 +126,8 @@ export default function SettingsPage() {
 
   const handleSaveEditType = () => {
     if (!editingTypeId || !editTypeName.trim()) return
-    for (const item of editTypeItems) {
-      if (!item.qty?.trim()) { setTypeError(`${item.itemName} needs a quantity`); return }
-    }
+    const err = validateItemQtys(editTypeItems)
+    if (err) { setTypeError(err); return }
     setTypeError("")
     updateMasterType(editingTypeId, { typeName: editTypeName.trim(), items: editTypeItems })
     setEditingTypeId(null)
@@ -160,30 +172,88 @@ export default function SettingsPage() {
       </div>
       {items.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-          {items.map((item) => (
-            <div key={item.itemId} style={{
-              display: "grid", gridTemplateColumns: "1fr 70px 1fr 1fr", gap: "var(--space-2)",
-              padding: "var(--space-3)", background: "var(--color-surface)",
-              borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border)", alignItems: "end",
-            }}>
-              <div>
-                <label style={labelStyle}>Item</label>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)", paddingTop: 6 }}>{item.itemName}</div>
+          {items.map((item) => {
+            const hasVariants = !!item.variants && item.variants.length > 0
+            const toggleVariants = () => {
+              const next: ItemVariant[] | undefined = hasVariants
+                ? undefined
+                : [{ label: "", qty: "" }]
+              setItems(items.map((i) => i.itemId === item.itemId ? { ...i, variants: next, qty: next ? "" : i.qty } : i))
+            }
+            const updateVariant = (idx: number, field: keyof ItemVariant, value: string) => {
+              setItems(items.map((i) => {
+                if (i.itemId !== item.itemId) return i
+                const vs = [...(i.variants || [])]
+                vs[idx] = { ...vs[idx], [field]: value }
+                return { ...i, variants: vs }
+              }))
+            }
+            const addVariant = () => {
+              setItems(items.map((i) => i.itemId === item.itemId
+                ? { ...i, variants: [...(i.variants || []), { label: "", qty: "" }] }
+                : i))
+            }
+            const removeVariant = (idx: number) => {
+              setItems(items.map((i) => {
+                if (i.itemId !== item.itemId) return i
+                const vs = (i.variants || []).filter((_, k) => k !== idx)
+                return { ...i, variants: vs.length > 0 ? vs : undefined }
+              }))
+            }
+
+            return (
+              <div key={item.itemId} style={{
+                padding: "var(--space-3)", background: "var(--color-surface)",
+                borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border)",
+                display: "flex", flexDirection: "column", gap: "var(--space-2)",
+              }}>
+                <div style={{ display: "grid", gridTemplateColumns: hasVariants ? "1fr auto 1fr 1fr" : "1fr 70px auto 1fr 1fr", gap: "var(--space-2)", alignItems: "end" }}>
+                  <div>
+                    <label style={labelStyle}>Item</label>
+                    <div style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)", paddingTop: 6 }}>{item.itemName}</div>
+                  </div>
+                  {!hasVariants && (
+                    <div>
+                      <label style={labelStyle}>Qty</label>
+                      <input type="number" min="0" value={item.qty} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "qty", e.target.value)} placeholder="0" style={{ ...inputStyle, height: 32, fontSize: "0.75rem", textAlign: "center" }} />
+                    </div>
+                  )}
+                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-display)", fontSize: "0.6875rem", fontWeight: 500, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.02em", cursor: "pointer", paddingBottom: 6, whiteSpace: "nowrap" }}>
+                    <input type="checkbox" checked={hasVariants} onChange={toggleVariants} style={{ accentColor: "var(--color-primary)" }} />
+                    Size variants
+                  </label>
+                  <div>
+                    <label style={labelStyle}>Make</label>
+                    <input value={item.make} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "make", e.target.value)} placeholder="Make" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Model</label>
+                    <input value={item.model} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
+                  </div>
+                </div>
+                {hasVariants && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", paddingLeft: "var(--space-3)", borderLeft: "2px solid var(--color-primary-soft)" }}>
+                    {(item.variants || []).map((v, idx) => (
+                      <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 70px auto", gap: "var(--space-2)", alignItems: "end" }}>
+                        <div>
+                          <label style={labelStyle}>Size label</label>
+                          <input value={v.label} onChange={(e) => updateVariant(idx, "label", e.target.value)} placeholder="e.g. 2(50,50)" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Qty</label>
+                          <input type="number" min="0" value={v.qty} onChange={(e) => updateVariant(idx, "qty", e.target.value)} placeholder="0" style={{ ...inputStyle, height: 32, fontSize: "0.75rem", textAlign: "center" }} />
+                        </div>
+                        <ActionButton variant="ghost" size="sm" onClick={() => removeVariant(idx)}>×</ActionButton>
+                      </div>
+                    ))}
+                    <div>
+                      <ActionButton variant="ghost" size="sm" onClick={addVariant}>+ Add variant</ActionButton>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div>
-                <label style={labelStyle}>Qty</label>
-                <input type="number" min="0" value={item.qty} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "qty", e.target.value)} placeholder="0" style={{ ...inputStyle, height: 32, fontSize: "0.75rem", textAlign: "center" }} />
-              </div>
-              <div>
-                <label style={labelStyle}>Make</label>
-                <input value={item.make} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "make", e.target.value)} placeholder="Make" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
-              </div>
-              <div>
-                <label style={labelStyle}>Model</label>
-                <input value={item.model} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </>
@@ -311,9 +381,13 @@ export default function SettingsPage() {
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 600, color: "var(--color-text)" }}>{mt.typeName}</span>
-                    {mt.items.map((i) => (
-                      <StatusBadge key={i.itemId} variant="info">{i.itemName}: {i.qty}</StatusBadge>
-                    ))}
+                    {mt.items.map((i) => {
+                      const hasVars = i.variants && i.variants.length > 0
+                      const label = hasVars
+                        ? `${i.itemName}: ${i.variants!.map((v) => `${v.label || "?"}=${v.qty || "0"}`).join(", ")}`
+                        : `${i.itemName}: ${i.qty}`
+                      return <StatusBadge key={i.itemId} variant="info">{label}</StatusBadge>
+                    })}
                     <span style={{ flex: 1 }} />
                     <ActionButton variant="ghost" size="sm" onClick={() => startEditType(mt.id)}>Edit</ActionButton>
                     {confirmDeleteType === mt.id ? (

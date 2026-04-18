@@ -1,35 +1,29 @@
-import type { SupportRow, ValidationResult } from "@/types/support"
+import { LENGTH_KEYS } from "@/types/support"
+import type { SupportRow, ValidationResult, LengthKey } from "@/types/support"
 
-/**
- * Fields that MUST have a value to generate PDFs.
- * Only supportTagName and type are truly essential — type is needed
- * for grouping into separate PDFs, supportTagName identifies the row.
- */
-const REQUIRED_FIELDS: (keyof SupportRow)[] = [
-  "supportTagName",
-  "type",
+const REQUIRED_FIELDS = ["tagNumber", "type"] as const
+
+const OPTIONAL_WARN_FIELDS = [
+  "siNo", "level", "withPlate", "withoutPlate",
+  ...LENGTH_KEYS.map((k) => `lengths.${k}`),
 ]
 
-/**
- * Fields that are optional but shown as warnings if empty.
- * These appear highlighted in the review table but don't block PDF generation.
- */
-const OPTIONAL_WARN_FIELDS: (keyof SupportRow)[] = [
-  "discipline",
-  "a", "b", "c", "d",
-  "item01Name", "item01Qty",
-  "item02Name", "item02Qty",
-  "item03Name", "item03Qty",
-  "x", "y", "z", "xGrid", "yGrid",
-]
-
-function calcTotal(row: SupportRow): string {
-  const a = parseFloat(row.a) || 0
-  const b = parseFloat(row.b) || 0
-  const c = parseFloat(row.c) || 0
-  const d = parseFloat(row.d) || 0
-  const sum = a + b + c + d
+function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
+  let sum = 0
+  for (const k of LENGTH_KEYS) {
+    const v = lengths[k]
+    if (v != null && v !== "") sum += parseFloat(v) || 0
+  }
   return sum % 1 === 0 ? String(sum) : sum.toFixed(2)
+}
+
+/** Reads a value from the raw mapped object using a key like "lengths.a" or "tagNumber". */
+function readField(raw: Record<string, unknown>, key: string): string {
+  if (key.startsWith("lengths.")) {
+    const sub = key.slice("lengths.".length)
+    return String(raw[`lengths.${sub}`] ?? "")
+  }
+  return String(raw[key] ?? "")
 }
 
 export function validateRows(mappedRows: Record<string, unknown>[]): ValidationResult {
@@ -40,49 +34,42 @@ export function validateRows(mappedRows: Record<string, unknown>[]): ValidationR
   const rows: SupportRow[] = mappedRows.map((raw, index) => {
     const missingFields: string[] = []
 
+    const lengths: Partial<Record<LengthKey, string>> = {}
+    for (const k of LENGTH_KEYS) {
+      const v = raw[`lengths.${k}`]
+      if (v != null && String(v) !== "") lengths[k] = String(v)
+      else lengths[k] = ""
+    }
+
     const row: SupportRow = {
-      supportTagName: String(raw["supportTagName"] ?? ""),
-      discipline: String(raw["discipline"] ?? ""),
+      siNo: String(raw["siNo"] ?? ""),
+      level: String(raw["level"] ?? ""),
+      tagNumber: String(raw["tagNumber"] ?? ""),
       type: String(raw["type"] ?? ""),
-      a: String(raw["a"] ?? ""),
-      b: String(raw["b"] ?? ""),
-      c: String(raw["c"] ?? ""),
-      d: String(raw["d"] ?? ""),
-      total: "", // auto-calculated
-      items: [], // populated later by upload finalize from project config
-      item01Name: String(raw["item01Name"] ?? ""),
-      item01Qty: String(raw["item01Qty"] ?? ""),
-      item02Name: String(raw["item02Name"] ?? ""),
-      item02Qty: String(raw["item02Qty"] ?? ""),
-      item03Name: String(raw["item03Name"] ?? ""),
-      item03Qty: String(raw["item03Qty"] ?? ""),
-      x: String(raw["x"] ?? ""),
-      y: String(raw["y"] ?? ""),
-      z: String(raw["z"] ?? ""),
-      xGrid: String(raw["xGrid"] ?? ""),
-      yGrid: String(raw["yGrid"] ?? ""),
+      withPlate: String(raw["withPlate"] ?? ""),
+      withoutPlate: String(raw["withoutPlate"] ?? ""),
+      lengths,
+      total: "",
+      itemQtys: {},
       remarks: String(raw["remarks"] ?? ""),
       _rowIndex: index,
       _hasErrors: false,
       _missingFields: [],
     }
 
-    // Auto-calculate total = A + B + C + D
-    row.total = calcTotal(row)
+    row.total = calcTotal(row.lengths)
 
-    // Check required fields (block PDF generation)
     let rowRequiredMissing = 0
     for (const key of REQUIRED_FIELDS) {
-      if (row[key] === "" || row[key] === undefined || row[key] === null) {
-        missingFields.push(key as string)
+      if (!readField(raw, key)) {
+        missingFields.push(key)
         rowRequiredMissing++
       }
     }
 
-    // Check optional fields (show warnings but don't block)
     for (const key of OPTIONAL_WARN_FIELDS) {
-      if (row[key] === "" || row[key] === undefined || row[key] === null) {
-        missingFields.push(key as string)
+      if (!readField(raw, key)) {
+        missingFields.push(key)
       }
     }
 

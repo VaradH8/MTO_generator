@@ -6,23 +6,31 @@ import SupportTable from "@/components/SupportTable"
 import ActionButton from "@/components/ActionButton"
 import EmptyState from "@/components/EmptyState"
 import { useSupportContext } from "@/context/SupportContext"
+import { useProjects } from "@/context/ProjectContext"
+import { LENGTH_KEYS } from "@/types/support"
+import type { LengthKey, SupportRow, SupportTypeConfig } from "@/types/support"
 import * as XLSX from "xlsx"
 
-function calcTotal(row: { a: string; b: string; c: string; d: string }): string {
-  const sum = (parseFloat(row.a) || 0) + (parseFloat(row.b) || 0) + (parseFloat(row.c) || 0) + (parseFloat(row.d) || 0)
+function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
+  let sum = 0
+  for (const k of LENGTH_KEYS) {
+    const v = lengths[k]
+    if (v) sum += parseFloat(v) || 0
+  }
   return sum % 1 === 0 ? String(sum) : sum.toFixed(2)
 }
 
 export default function ReviewPage() {
   const router = useRouter()
-  const { validationResult, setValidationResult, setGroupedSupports, setApprovalSubmitted } = useSupportContext()
+  const { validationResult, setValidationResult, setGroupedSupports, setApprovalSubmitted, currentProjectId } = useSupportContext()
+  const { getTypeConfigs } = useProjects()
+  const typeConfigs: SupportTypeConfig[] = currentProjectId ? getTypeConfigs(currentProjectId) : []
   const [generating, setGenerating] = useState(false)
   const [search, setSearch] = useState("")
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
   const [bulkType, setBulkType] = useState("")
-  const [bulkDiscipline, setBulkDiscipline] = useState("")
 
-  const REQUIRED_KEYS = ["supportTagName", "type"]
+  const REQUIRED_KEYS = ["tagNumber", "type"]
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -49,21 +57,39 @@ export default function ReviewPage() {
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows
     const q = search.toLowerCase()
-    return rows.filter((r) => r.supportTagName.toLowerCase().includes(q) || r.type.toLowerCase().includes(q) || r.discipline.toLowerCase().includes(q))
+    return rows.filter((r) =>
+      r.tagNumber.toLowerCase().includes(q) ||
+      r.type.toLowerCase().includes(q) ||
+      r.level.toLowerCase().includes(q)
+    )
   }, [rows, search])
 
   const handleCellEdit = (rowIndex: number, colKey: string, value: string | number) => {
+    const stringVal = String(value)
     const updatedRows = rows.map((row) => {
       if (row._rowIndex !== rowIndex) return row
-      const updated = { ...row, items: row.items ? [...row.items] : [], [colKey]: String(value) }
-      if (["a", "b", "c", "d"].includes(colKey)) updated.total = calcTotal(updated)
-      const itemMatch = colKey.match(/^item(\d{2})(Name|Qty)$/)
-      if (itemMatch) {
-        const idx = parseInt(itemMatch[1], 10) - 1
-        const field = itemMatch[2] === "Name" ? "name" : "qty"
-        while (updated.items.length <= idx) updated.items.push({ name: "", qty: "" })
-        updated.items[idx] = { ...updated.items[idx], [field]: String(value) }
+      const updated: SupportRow = {
+        ...row,
+        lengths: { ...row.lengths },
+        itemQtys: { ...row.itemQtys },
       }
+
+      // Length cell: "lengths.<key>"
+      if (colKey.startsWith("lengths.")) {
+        const sub = colKey.slice("lengths.".length) as LengthKey
+        updated.lengths[sub] = stringVal
+        updated.total = calcTotal(updated.lengths)
+      } else if (colKey.startsWith("item:")) {
+        // Item qty cell: "item:<itemName>" or "item:<itemName>::<variantLabel>"
+        const rest = colKey.slice("item:".length)
+        const [itemName, variantLabel = ""] = rest.split("::")
+        const cur = { ...(updated.itemQtys[itemName] || {}) }
+        cur[variantLabel] = stringVal
+        updated.itemQtys[itemName] = cur
+      } else {
+        ;(updated as unknown as Record<string, string>)[colKey] = stringVal
+      }
+
       updated._missingFields = updated._missingFields.filter((f) => f !== colKey)
       updated._hasErrors = updated._missingFields.some((f) => REQUIRED_KEYS.includes(f))
       return updated
@@ -92,14 +118,12 @@ export default function ReviewPage() {
       if (!selectedRows.has(row._rowIndex)) return row
       const updated = { ...row }
       if (bulkType.trim()) { updated.type = bulkType.trim(); updated._missingFields = updated._missingFields.filter((f) => f !== "type") }
-      if (bulkDiscipline.trim()) { updated.discipline = bulkDiscipline.trim(); updated._missingFields = updated._missingFields.filter((f) => f !== "discipline") }
       updated._hasErrors = updated._missingFields.some((f) => REQUIRED_KEYS.includes(f))
       return updated
     })
     updateValidation(updatedRows)
     setSelectedRows(new Set())
     setBulkType("")
-    setBulkDiscipline("")
   }
 
   const toggleRowSelect = (idx: number) => {
@@ -124,12 +148,41 @@ export default function ReviewPage() {
     router.push("/output")
   }, [rows, setGroupedSupports, setApprovalSubmitted, router])
 
-  const buildExportData = () => rows.map((row) => {
-    const base: Record<string, string> = { "Support Tag Name": row.supportTagName, "Discipline": row.discipline, "Type": row.type, "A": row.a, "B": row.b, "C": row.c, "D": row.d, "Total": row.total }
-    if (row.items) row.items.forEach((item, i) => { const n = String(i + 1).padStart(2, "0"); base[`Item-${n} Name`] = item.name; base[`Item-${n} Qty`] = item.qty })
-    base["X"] = row.x; base["Y"] = row.y; base["Z"] = row.z; base["X-Grid"] = row.xGrid; base["Y-Grid"] = row.yGrid; base["Remarks"] = row.remarks
-    return base
-  })
+  const buildExportData = () => {
+    // Union of all item names × variant labels across all project types
+    const itemCols: { itemName: string; variantLabel: string; header: string }[] = []
+    const seen = new Set<string>()
+    for (const tc of typeConfigs) {
+      for (const item of tc.items) {
+        if (item.variants && item.variants.length > 0) {
+          for (const v of item.variants) {
+            const header = `${item.itemName} · ${v.label}`
+            if (!seen.has(header)) { seen.add(header); itemCols.push({ itemName: item.itemName, variantLabel: v.label, header }) }
+          }
+        } else {
+          const header = item.itemName
+          if (!seen.has(header)) { seen.add(header); itemCols.push({ itemName: item.itemName, variantLabel: "", header }) }
+        }
+      }
+    }
+    return rows.map((row) => {
+      const base: Record<string, string> = {
+        "SI No": row.siNo,
+        "Level": row.level,
+        "Tag Number": row.tagNumber,
+        "Type": row.type,
+        "With Plate": row.withPlate,
+        "Without Plate": row.withoutPlate,
+      }
+      for (const k of LENGTH_KEYS) base[k.toUpperCase()] = row.lengths[k] ?? ""
+      base["Total"] = row.total
+      for (const c of itemCols) {
+        base[c.header] = row.itemQtys[c.itemName]?.[c.variantLabel] ?? ""
+      }
+      base["Remarks"] = row.remarks
+      return base
+    })
+  }
 
   const handleExportExcel = useCallback(() => {
     const ws = XLSX.utils.json_to_sheet(buildExportData())
@@ -167,7 +220,7 @@ export default function ReviewPage() {
 
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-2)" }}>Review Support Data</h1>
       <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)", marginBottom: "var(--space-4)" }}>
-        Total = A+B+C+D (auto). <span style={{ color: "var(--color-text-faint)" }}>Ctrl+Enter: generate | Ctrl+E: export | Ctrl+P: print</span>
+        Total = sum of all length columns (auto). <span style={{ color: "var(--color-text-faint)" }}>Ctrl+Enter: generate | Ctrl+E: export | Ctrl+P: print</span>
       </p>
 
       {/* Stats + Search */}
@@ -192,7 +245,6 @@ export default function ReviewPage() {
         <div className="animate-fade-in-down" style={{ display: "flex", gap: "var(--space-3)", alignItems: "end", padding: "var(--space-3) var(--space-4)", background: "var(--color-primary-soft)", borderRadius: "var(--radius-md)", marginBottom: "var(--space-4)", flexWrap: "wrap" }}>
           <span style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-primary)" }}>{selectedRows.size} selected</span>
           <input value={bulkType} onChange={(e) => setBulkType(e.target.value)} placeholder="Set type..." style={{ ...inputStyle, width: 100 }} />
-          <input value={bulkDiscipline} onChange={(e) => setBulkDiscipline(e.target.value)} placeholder="Set discipline..." style={{ ...inputStyle, width: 120 }} />
           <ActionButton variant="primary" size="sm" onClick={handleBulkApply}>Apply</ActionButton>
           <ActionButton variant="ghost" size="sm" onClick={() => setSelectedRows(new Set())}>Clear</ActionButton>
         </div>
@@ -209,7 +261,7 @@ export default function ReviewPage() {
 
       {/* Table */}
       <div style={{ marginBottom: "var(--space-6)" }} id="print-area">
-        <SupportTable rows={filteredRows} onCellEdit={handleCellEdit} onRowsChange={handleRowsChange} disabled={generating} selectedRows={selectedRows} onRowSelect={toggleRowSelect} />
+        <SupportTable rows={filteredRows} typeConfigs={typeConfigs} onCellEdit={handleCellEdit} onRowsChange={handleRowsChange} disabled={generating} selectedRows={selectedRows} onRowSelect={toggleRowSelect} />
       </div>
 
       {/* Actions */}

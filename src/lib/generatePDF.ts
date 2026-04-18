@@ -1,20 +1,76 @@
 import { jsPDF } from "jspdf"
-import autoTable from "jspdf-autotable"
-import type { SupportRow } from "@/types/support"
+import autoTable, { type CellDef } from "jspdf-autotable"
+import { LENGTH_KEYS } from "@/types/support"
+import type { SupportRow, SupportTypeConfig, LengthKey } from "@/types/support"
 import { registerFonts, getFontNames } from "./pdfFonts"
 
 const PRIMARY: [number, number, number] = [31, 60, 168]
 const DARK: [number, number, number] = [13, 21, 48]
 const MUTED: [number, number, number] = [74, 84, 120]
 const BORDER: [number, number, number] = [201, 210, 228]
-const SURFACE: [number, number, number] = [243, 245, 250]
 
-const PRE_COLS = ["Support Tag Name", "Discipline", "Type", "A", "B", "C", "D", "Total"]
-const POST_COLS = ["X", "Y", "Z", "X-Grid", "Y-Grid", "Remarks"]
-const PRE_KEYS: (keyof SupportRow)[] = ["supportTagName", "discipline", "type", "a", "b", "c", "d", "total"]
-const POST_KEYS: (keyof SupportRow)[] = ["x", "y", "z", "xGrid", "yGrid", "remarks"]
+/** Meta columns that appear before the LENGTH block. */
+const PRE_LENGTH: { key: keyof SupportRow; label: string }[] = [
+  { key: "siNo", label: "SI NO" },
+  { key: "level", label: "LEVEL" },
+  { key: "tagNumber", label: "TAG NUMBER" },
+  { key: "type", label: "TYPE" },
+  { key: "withPlate", label: "WITH PLATE" },
+  { key: "withoutPlate", label: "WITHOUT PLATE" },
+]
 
-export async function generatePDF(type: string, rows: SupportRow[], projectName?: string): Promise<Blob> {
+interface ItemColumn {
+  itemName: string
+  /** Variant label; empty string for single-column (no variants) items. */
+  variantLabel: string
+}
+
+/** Union across all configured types, preserving first-seen ordering. */
+function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
+  const cols: ItemColumn[] = []
+  const seen = new Set<string>()
+  for (const tc of typeConfigs) {
+    for (const item of tc.items) {
+      if (item.variants && item.variants.length > 0) {
+        for (const v of item.variants) {
+          const k = `${item.itemName}::${v.label}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          cols.push({ itemName: item.itemName, variantLabel: v.label })
+        }
+      } else {
+        const k = `${item.itemName}::`
+        if (seen.has(k)) continue
+        seen.add(k)
+        cols.push({ itemName: item.itemName, variantLabel: "" })
+      }
+    }
+  }
+  return cols
+}
+
+/** Highest length letter (a..p) that has any non-empty value across the given rows. */
+function maxLengthKey(rows: SupportRow[]): LengthKey {
+  let maxIdx = 0
+  for (const row of rows) {
+    for (let i = LENGTH_KEYS.length - 1; i >= 0; i--) {
+      const v = row.lengths[LENGTH_KEYS[i]]
+      if (v != null && String(v).trim() !== "") {
+        if (i > maxIdx) maxIdx = i
+        break
+      }
+    }
+  }
+  // Always show at least A..D so the table doesn't look too bare
+  return LENGTH_KEYS[Math.max(maxIdx, 3)]
+}
+
+export async function generatePDF(
+  type: string,
+  rows: SupportRow[],
+  projectName?: string,
+  typeConfigs: SupportTypeConfig[] = [],
+): Promise<Blob> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
@@ -23,52 +79,74 @@ export async function generatePDF(type: string, rows: SupportRow[], projectName?
   const customLoaded = await registerFonts(doc)
   const fonts = getFontNames(customLoaded)
 
-  // Max items
-  let maxItems = 0
-  for (const row of rows) {
-    if (row.items?.length > maxItems) maxItems = row.items.length
+  // ── Determine dynamic columns ──
+  const lastLength = maxLengthKey(rows)
+  const lastLengthIdx = LENGTH_KEYS.indexOf(lastLength)
+  const activeLengths = LENGTH_KEYS.slice(0, lastLengthIdx + 1)
+
+  // Scope item columns to the types actually present in these rows (PDF is per-type).
+  const typesInRows = new Set(rows.map((r) => r.type.trim().toLowerCase()).filter(Boolean))
+  const scopedConfigs = typeConfigs.filter((tc) => typesInRows.has(tc.typeName.trim().toLowerCase()))
+  const itemCols = buildItemColumns(scopedConfigs.length > 0 ? scopedConfigs : typeConfigs)
+
+  // Group item columns by itemName to know which parent spans multiple variants.
+  const itemGroups: { itemName: string; variantLabels: string[] }[] = []
+  for (const ic of itemCols) {
+    const existing = itemGroups.find((g) => g.itemName === ic.itemName)
+    if (existing) existing.variantLabels.push(ic.variantLabel)
+    else itemGroups.push({ itemName: ic.itemName, variantLabels: [ic.variantLabel] })
   }
-  if (maxItems === 0) {
-    for (const row of rows) {
-      if (row.item03Name || row.item03Qty) { maxItems = 3; break }
-      if (row.item02Name || row.item02Qty) maxItems = Math.max(maxItems, 2)
-      if (row.item01Name || row.item01Qty) maxItems = Math.max(maxItems, 1)
+
+  // ── Build nested header (two rows) ──
+  const headStyles = {
+    fillColor: PRIMARY,
+    textColor: [255, 255, 255] as [number, number, number],
+    fontSize: 6,
+    fontStyle: "bold" as const,
+    halign: "center" as const,
+    valign: "middle" as const,
+  }
+
+  const headRow1: CellDef[] = []
+  const headRow2: CellDef[] = []
+
+  for (const c of PRE_LENGTH) {
+    headRow1.push({ content: c.label, rowSpan: 2, styles: headStyles })
+  }
+  headRow1.push({ content: "LENGTH", colSpan: activeLengths.length, styles: headStyles })
+  for (const k of activeLengths) headRow2.push({ content: k.toUpperCase(), styles: headStyles })
+  headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
+
+  for (const g of itemGroups) {
+    const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
+    if (isVariant) {
+      headRow1.push({ content: g.itemName.toUpperCase(), colSpan: g.variantLabels.length, styles: headStyles })
+      for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
+    } else {
+      headRow1.push({ content: g.itemName.toUpperCase(), rowSpan: 2, styles: headStyles })
     }
   }
-  maxItems = Math.max(maxItems, 1)
 
-  // Build headers
-  const itemHeaders: string[] = []
-  for (let i = 0; i < maxItems; i++) {
-    const num = String(i + 1).padStart(2, "0")
-    itemHeaders.push(`Item-${num} Name`, `Item-${num} Qty`)
-  }
-  const allHeaders = [...PRE_COLS, ...itemHeaders, ...POST_COLS]
+  headRow1.push({ content: "REMARKS", rowSpan: 2, styles: headStyles })
 
-  // Build body
+  // ── Build body ──
   const body = rows.map((row) => {
-    const pre = PRE_KEYS.map((k) => String(row[k] ?? ""))
-    const items: string[] = []
-    for (let i = 0; i < maxItems; i++) {
-      if (row.items?.[i]) {
-        items.push(row.items[i].name ?? "", row.items[i].qty ?? "")
-      } else {
-        const num = String(i + 1).padStart(2, "0")
-        items.push(
-          (row as unknown as Record<string, string>)[`item${num}Name`] ?? "",
-          (row as unknown as Record<string, string>)[`item${num}Qty`] ?? ""
-        )
-      }
+    const cells: string[] = []
+    for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
+    for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
+    cells.push(String(row.total ?? ""))
+    for (const ic of itemCols) {
+      cells.push(String(row.itemQtys?.[ic.itemName]?.[ic.variantLabel] ?? ""))
     }
-    const post = POST_KEYS.map((k) => String(row[k] ?? ""))
-    return [...pre, ...items, ...post]
+    cells.push(String(row.remarks ?? ""))
+    return cells
   })
 
-  // ─── Top accent bar ───
+  // ── Top accent bar ──
   doc.setFillColor(...PRIMARY)
   doc.rect(0, 0, pw, 3, "F")
 
-  // ─── Logo ───
+  // ── Logo ──
   try {
     const logoRes = await fetch("/logo.png")
     const logoBuf = await logoRes.arrayBuffer()
@@ -76,7 +154,7 @@ export async function generatePDF(type: string, rows: SupportRow[], projectName?
     doc.addImage(`data:image/png;base64,${logoB64}`, "PNG", mx, 7, 12, 12)
   } catch { /* no logo */ }
 
-  // ─── Title ───
+  // ── Title ──
   doc.setFont(fonts.display, "bold")
   doc.setFontSize(14)
   doc.setTextColor(...DARK)
@@ -86,20 +164,22 @@ export async function generatePDF(type: string, rows: SupportRow[], projectName?
   doc.setFontSize(8)
   doc.setTextColor(...MUTED)
   const subtitle = projectName ? `${projectName} | ` : ""
-  doc.text(`${subtitle}${rows.length} supports, ${maxItems} item${maxItems !== 1 ? "s" : ""} per support`, mx + 16, 18)
+  doc.text(`${subtitle}${rows.length} supports`, mx + 16, 18)
 
-  // ─── Table ───
+  // ── Table ──
   autoTable(doc, {
     startY: 24,
-    head: [allHeaders],
+    head: [headRow1, headRow2],
     body,
     styles: {
       fontSize: 6.5,
-      cellPadding: 1.8,
+      cellPadding: 1.6,
       font: fonts.body,
       textColor: DARK,
       lineColor: BORDER,
       lineWidth: 0.15,
+      halign: "center",
+      valign: "middle",
     },
     headStyles: {
       fillColor: PRIMARY,
@@ -114,7 +194,7 @@ export async function generatePDF(type: string, rows: SupportRow[], projectName?
     margin: { left: mx, right: mx },
   })
 
-  // ─── Bottom bar + footer ───
+  // ── Bottom bar + footer ──
   doc.setFillColor(...PRIMARY)
   doc.rect(0, ph - 3, pw, 3, "F")
 

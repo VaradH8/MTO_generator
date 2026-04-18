@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import * as XLSX from "xlsx"
-import type { SupportRow } from "@/types/support"
+import { LENGTH_KEYS } from "@/types/support"
+import type { SupportRow, SupportTypeConfig, LengthKey } from "@/types/support"
 import type { ColumnDef, CellAddress, CellRange, CellFormat, ConditionalRule, SortConfig, HistoryEntry } from "./table/types"
 import { cellKey, isCellInRange, normalizeRange } from "./table/types"
 import { useHistory } from "./table/useHistory"
@@ -13,30 +14,39 @@ import FindReplace from "./table/FindReplace"
 
 // ── Column definitions ──────────────────────────────────────────────────
 
-const PRE_ITEM_COLS: ColumnDef[] = [
-  { key: "supportTagName", label: "Support Tag Name", minWidth: 160, align: "left", type: "text", getValue: (r) => r.supportTagName },
-  { key: "discipline", label: "Discipline", minWidth: 100, align: "left", type: "text", getValue: (r) => r.discipline },
-  { key: "type", label: "Type", minWidth: 100, align: "left", type: "text", getValue: (r) => r.type },
-  { key: "a", label: "A", minWidth: 56, align: "center", type: "number", getValue: (r) => r.a },
-  { key: "b", label: "B", minWidth: 56, align: "center", type: "number", getValue: (r) => r.b },
-  { key: "c", label: "C", minWidth: 56, align: "center", type: "number", getValue: (r) => r.c },
-  { key: "d", label: "D", minWidth: 56, align: "center", type: "number", getValue: (r) => r.d },
-  { key: "total", label: "Total (A+B+C+D)", minWidth: 80, align: "center", type: "number", readOnly: true, getValue: (r) => r.total },
+const PRE_LENGTH_COLS: ColumnDef[] = [
+  { key: "siNo", label: "SI No", minWidth: 60, align: "center", type: "text", getValue: (r) => r.siNo },
+  { key: "level", label: "Level", minWidth: 60, align: "center", type: "text", getValue: (r) => r.level },
+  { key: "tagNumber", label: "Tag Number", minWidth: 160, align: "left", type: "text", getValue: (r) => r.tagNumber },
+  { key: "type", label: "Type", minWidth: 90, align: "left", type: "text", getValue: (r) => r.type },
+  { key: "withPlate", label: "With Plate", minWidth: 80, align: "center", type: "number", getValue: (r) => r.withPlate },
+  { key: "withoutPlate", label: "Without Plate", minWidth: 90, align: "center", type: "number", getValue: (r) => r.withoutPlate },
 ]
 
-const POST_ITEM_COLS: ColumnDef[] = [
-  { key: "x", label: "X", minWidth: 64, align: "center", type: "number", alwaysEditable: true, getValue: (r) => r.x },
-  { key: "y", label: "Y", minWidth: 64, align: "center", type: "number", alwaysEditable: true, getValue: (r) => r.y },
-  { key: "z", label: "Z", minWidth: 64, align: "center", type: "number", alwaysEditable: true, getValue: (r) => r.z },
-  { key: "xGrid", label: "X-Grid", minWidth: 80, align: "left", type: "text", getValue: (r) => r.xGrid },
-  { key: "yGrid", label: "Y-Grid", minWidth: 80, align: "left", type: "text", getValue: (r) => r.yGrid },
-  { key: "remarks", label: "Remarks", minWidth: 200, align: "left", type: "text", alwaysEditable: true, getValue: (r) => r.remarks },
-]
+const LENGTH_COLS: ColumnDef[] = LENGTH_KEYS.map((k) => ({
+  key: `lengths.${k}`,
+  label: k.toUpperCase(),
+  minWidth: 50,
+  align: "center" as const,
+  type: "number" as const,
+  getValue: (r: SupportRow) => r.lengths[k as LengthKey] ?? "",
+}))
+
+const TOTAL_COL: ColumnDef = {
+  key: "total", label: "Total", minWidth: 70, align: "center", type: "number", readOnly: true,
+  getValue: (r) => r.total,
+}
+
+const REMARKS_COL: ColumnDef = {
+  key: "remarks", label: "Remarks", minWidth: 200, align: "left", type: "text", alwaysEditable: true,
+  getValue: (r) => r.remarks,
+}
 
 // ── Props ───────────────────────────────────────────────────────────────
 
 interface SupportTableProps {
   rows: SupportRow[]
+  typeConfigs?: SupportTypeConfig[]
   onCellEdit?: (rowIndex: number, colKey: string, value: string | number) => void
   onRowsChange?: (rows: SupportRow[]) => void
   disabled?: boolean
@@ -46,7 +56,7 @@ interface SupportTableProps {
 
 // ── Main Component ──────────────────────────────────────────────────────
 
-export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled = false, selectedRows, onRowSelect }: SupportTableProps) {
+export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRowsChange, disabled = false, selectedRows, onRowSelect }: SupportTableProps) {
   const tableRef = useRef<HTMLDivElement>(null)
 
   // ─── Core state ─────────────────────────────────────────────────────
@@ -104,33 +114,54 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
 
   // ── Build columns ─────────────────────────────────────────────────────
 
-  const maxItems = useMemo(() => {
-    let max = 0
-    for (const row of rows) {
-      if (row.items && row.items.length > max) max = row.items.length
-    }
-    if (max === 0) {
-      for (const row of rows) {
-        if (row.item01Name || row.item01Qty) max = Math.max(max, 1)
-        if (row.item02Name || row.item02Qty) max = Math.max(max, 2)
-        if (row.item03Name || row.item03Qty) max = Math.max(max, 3)
-      }
-    }
-    return Math.max(max, 1)
-  }, [rows])
-
+  /** One flat column per (itemName, variantLabel?) across all configured types. */
   const itemCols: ColumnDef[] = useMemo(() => {
     const cols: ColumnDef[] = []
-    for (let i = 0; i < maxItems; i++) {
-      const idx = i
-      const num = String(i + 1).padStart(2, "0")
-      cols.push({ key: `item${num}Name`, label: `Item-${num} Name`, minWidth: 130, align: "left", type: "text", getValue: (r) => r.items?.[idx]?.name ?? (r as unknown as Record<string, string>)[`item${num}Name`] ?? "" })
-      cols.push({ key: `item${num}Qty`, label: `Item-${num} Qty`, minWidth: 72, align: "center", type: "number", getValue: (r) => r.items?.[idx]?.qty ?? (r as unknown as Record<string, string>)[`item${num}Qty`] ?? "" })
+    const seen = new Set<string>()
+    for (const tc of typeConfigs) {
+      for (const item of tc.items) {
+        if (item.variants && item.variants.length > 0) {
+          for (const v of item.variants) {
+            const key = `item:${item.itemName}::${v.label}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            const itemName = item.itemName
+            const variantLabel = v.label
+            cols.push({
+              key,
+              label: `${itemName} · ${variantLabel}`,
+              minWidth: 80,
+              align: "center",
+              type: "number",
+              getValue: (r: SupportRow) => r.itemQtys?.[itemName]?.[variantLabel] ?? "",
+            })
+          }
+        } else {
+          const key = `item:${item.itemName}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          const itemName = item.itemName
+          cols.push({
+            key,
+            label: itemName,
+            minWidth: 90,
+            align: "center",
+            type: "number",
+            getValue: (r: SupportRow) => r.itemQtys?.[itemName]?.[""] ?? "",
+          })
+        }
+      }
     }
     return cols
-  }, [maxItems])
+  }, [typeConfigs])
 
-  const baseColumns = useMemo(() => [...PRE_ITEM_COLS, ...itemCols, ...POST_ITEM_COLS], [itemCols])
+  const baseColumns = useMemo(() => [
+    ...PRE_LENGTH_COLS,
+    ...LENGTH_COLS,
+    TOTAL_COL,
+    ...itemCols,
+    REMARKS_COL,
+  ], [itemCols])
 
   // Apply column order + visibility
   const visibleColumns = useMemo(() => {
@@ -402,10 +433,9 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
   const insertRow = useCallback((afterIndex: number) => {
     if (!onRowsChange) return
     const empty: SupportRow = {
-      supportTagName: "", discipline: "", type: "", a: "", b: "", c: "", d: "", total: "0",
-      items: [], item01Name: "", item01Qty: "", item02Name: "", item02Qty: "", item03Name: "", item03Qty: "",
-      x: "", y: "", z: "", xGrid: "", yGrid: "", remarks: "",
-      _rowIndex: Date.now(), _hasErrors: true, _missingFields: ["supportTagName", "type"],
+      siNo: "", level: "", tagNumber: "", type: "", withPlate: "", withoutPlate: "",
+      lengths: {}, total: "0", itemQtys: {}, remarks: "",
+      _rowIndex: Date.now(), _hasErrors: true, _missingFields: ["tagNumber", "type"],
     }
     const idx = rows.findIndex((r) => r._rowIndex === afterIndex)
     const newRows = [...rows]
@@ -425,7 +455,12 @@ export default function SupportTable({ rows, onCellEdit, onRowsChange, disabled 
     if (!onRowsChange) return
     const src = rows.find((r) => r._rowIndex === rowIndex)
     if (!src) return
-    const dup = { ...src, _rowIndex: Date.now(), items: src.items?.map((i) => ({ ...i })) || [] }
+    const dup: SupportRow = {
+      ...src,
+      _rowIndex: Date.now(),
+      lengths: { ...src.lengths },
+      itemQtys: Object.fromEntries(Object.entries(src.itemQtys).map(([k, v]) => [k, { ...v }])),
+    }
     const idx = rows.findIndex((r) => r._rowIndex === rowIndex)
     const newRows = [...rows]
     newRows.splice(idx + 1, 0, dup)

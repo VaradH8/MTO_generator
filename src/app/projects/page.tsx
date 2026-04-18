@@ -75,6 +75,7 @@ export default function ProjectsPage() {
         qty: i.qty,
         make: i.make,
         model: i.model,
+        variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
       })),
     }
     setEditTypes((prev) => [...prev, newType])
@@ -109,7 +110,10 @@ export default function ProjectsPage() {
     if (saveToMaster) {
       addMasterType({
         typeName: customTypeName.trim(),
-        items: customItems.map((i) => ({ itemId: i.itemId, itemName: i.itemName, qty: i.qty, make: i.make, model: i.model })),
+        items: customItems.map((i) => ({
+          itemId: i.itemId, itemName: i.itemName, qty: i.qty, make: i.make, model: i.model,
+          variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
+        })),
       })
     }
 

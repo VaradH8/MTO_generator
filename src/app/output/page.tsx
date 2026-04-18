@@ -9,6 +9,7 @@ import EmptyState from "@/components/EmptyState"
 import { useSupportContext } from "@/context/SupportContext"
 import { useAuth } from "@/context/AuthContext"
 import { useApprovals } from "@/context/ApprovalContext"
+import { useProjects } from "@/context/ProjectContext"
 import { generatePDF } from "@/lib/generatePDF"
 import { generateZip } from "@/lib/generateZip"
 
@@ -27,6 +28,8 @@ export default function OutputPage() {
   } = useSupportContext()
   const { user } = useAuth()
   const { submitForApproval } = useApprovals()
+  const { getTypeConfigs } = useProjects()
+  const typeConfigs = currentProjectId ? getTypeConfigs(currentProjectId) : []
   const [downloadStatus, setDownloadStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
   const [zipping, setZipping] = useState(false)
 
@@ -44,7 +47,7 @@ export default function OutputPage() {
       types[type] = rows.length
       totalCount += rows.length
       for (const row of rows) {
-        if (row.supportTagName) supportKeys.push(row.supportTagName)
+        if (row.tagNumber) supportKeys.push(row.tagNumber)
       }
     }
 
@@ -88,7 +91,7 @@ export default function OutputPage() {
     setDownloadStatus((s) => ({ ...s, [type]: "downloading" }))
     try {
       const rows = groupedSupports[type]
-      const blob = await generatePDF(type, rows, currentProjectName)
+      const blob = await generatePDF(type, rows, currentProjectName, typeConfigs)
       triggerDownload(blob, `${type}-supports.pdf`)
       setDownloadStatus((s) => ({ ...s, [type]: "ready" }))
     } catch {
@@ -102,7 +105,7 @@ export default function OutputPage() {
       const pdfs = await Promise.all(
         types.map(async ([type, rows]) => ({
           name: `${type}-supports`,
-          blob: await generatePDF(type, rows, currentProjectName),
+          blob: await generatePDF(type, rows, currentProjectName, typeConfigs),
         }))
       )
       const zipBlob = await generateZip(pdfs)

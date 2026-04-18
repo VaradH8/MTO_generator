@@ -42,8 +42,10 @@ CREATE TABLE IF NOT EXISTS master_type_items (
   item_name      VARCHAR(255) NOT NULL,
   qty            VARCHAR(50) NOT NULL DEFAULT '',
   make           VARCHAR(255) NOT NULL DEFAULT '',
-  model          VARCHAR(255) NOT NULL DEFAULT ''
+  model          VARCHAR(255) NOT NULL DEFAULT '',
+  variants       JSONB NOT NULL DEFAULT '[]'
 );
+ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]';
 
 -- ── Projects ────────────────────────────────────────────────────────
 
@@ -71,8 +73,10 @@ CREATE TABLE IF NOT EXISTS project_type_items (
   item_name               VARCHAR(255) NOT NULL,
   qty                     VARCHAR(50) NOT NULL DEFAULT '',
   make                    VARCHAR(255) NOT NULL DEFAULT '',
-  model                   VARCHAR(255) NOT NULL DEFAULT ''
+  model                   VARCHAR(255) NOT NULL DEFAULT '',
+  variants                JSONB NOT NULL DEFAULT '[]'
 );
+ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]';
 
 -- ── Upload Records ──────────────────────────────────────────────────
 

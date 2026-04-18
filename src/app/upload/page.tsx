@@ -8,20 +8,23 @@ import { parseExcelFile } from "@/lib/parseExcel"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjects } from "@/context/ProjectContext"
 import * as XLSX from "xlsx"
-import type { ParseResult, SupportRow, SupportTypeConfig } from "@/types/support"
+import { LENGTH_KEYS } from "@/types/support"
+import type { ParseResult, SupportRow, SupportTypeConfig, LengthKey } from "@/types/support"
 
 type FileStatus = "idle" | "validating" | "valid" | "invalid"
 
 const FIELD_LABELS: Record<string, string> = {
-  supportTagName: "Support Tag Name",
-  discipline: "Discipline", type: "Type",
-  a: "A", b: "B", c: "C", d: "D",
-  item01Name: "Item-01 Name", item02Name: "Item-02 Name", item03Name: "Item-03 Name",
-  xGrid: "X-Grid", yGrid: "Y-Grid",
+  siNo: "SI No", level: "Level", tagNumber: "Tag Number", type: "Type",
+  withPlate: "With Plate", withoutPlate: "Without Plate",
+  ...Object.fromEntries(LENGTH_KEYS.map((k) => [`lengths.${k}`, k.toUpperCase()])),
 }
 
-function calcTotal(row: SupportRow): string {
-  const sum = (parseFloat(row.a) || 0) + (parseFloat(row.b) || 0) + (parseFloat(row.c) || 0) + (parseFloat(row.d) || 0)
+function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
+  let sum = 0
+  for (const k of LENGTH_KEYS) {
+    const v = lengths[k]
+    if (v) sum += parseFloat(v) || 0
+  }
   return sum % 1 === 0 ? String(sum) : sum.toFixed(2)
 }
 
@@ -66,25 +69,17 @@ export default function UploadPage() {
 
   const handleDownloadTemplate = useCallback(() => {
     if (!project) return
-    const baseColsBefore = ["Support Tag Name", "Discipline", "Type", "A", "B", "C", "D"]
-    const itemCols: string[] = []
-    for (const tc of typeConfigs) {
-      for (const item of tc.items) {
-        const nameCol = `${item.itemName} Name`
-        const qtyCol = `${item.itemName} Qty`
-        if (!itemCols.includes(nameCol)) itemCols.push(nameCol)
-        if (!itemCols.includes(qtyCol)) itemCols.push(qtyCol)
-      }
-    }
-    const baseColsAfter = ["X", "Y", "Z", "X-Grid", "Y-Grid", "Remarks"]
-    const headers = [...baseColsBefore, ...itemCols, ...baseColsAfter]
+    // Input template: meta cols, then length cols A..P, then remarks.
+    // Item qtys are filled from project config, not from the input Excel.
+    const baseCols = ["SI No", "Level", "Tag Number", "Type", "With Plate", "Without Plate"]
+    const lengthCols = LENGTH_KEYS.map((k) => k.toUpperCase())
+    const headers = [...baseCols, ...lengthCols, "Remarks"]
     const ws = XLSX.utils.aoa_to_sheet([headers])
-    // Set column widths
     ws["!cols"] = headers.map((h) => ({ wch: Math.max(h.length + 2, 12) }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template")
     XLSX.writeFile(wb, `${project.clientName.replace(/[^a-zA-Z0-9]/g, "_")}_template.xlsx`)
-  }, [project, typeConfigs])
+  }, [project])
 
   const handleFileSelect = (f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase()
@@ -140,7 +135,7 @@ export default function UploadPage() {
       setParseResult(result)
       const initial: Record<string, string> = {}
       for (const col of result.missingColumns) {
-        if (col === "type" || col.startsWith("item0")) continue
+        if (col === "type") continue
         initial[col] = ""
       }
       setMissingValues(initial)
@@ -151,7 +146,7 @@ export default function UploadPage() {
         for (const u of (project.uploads || [])) {
           for (const k of (u.supportKeys || [])) existingKeys.add(k)
         }
-        const parsedKeys = result.validation.rows.map((r) => r.supportTagName).filter(Boolean)
+        const parsedKeys = result.validation.rows.map((r) => r.tagNumber).filter(Boolean)
         const dupes = parsedKeys.filter((k) => existingKeys.has(k))
         if (dupes.length > 0) {
           setDuplicateWarning({ count: dupes.length, names: dupes.slice(0, 10) })
@@ -199,19 +194,25 @@ export default function UploadPage() {
     const overrides: Record<string, string> = { ...missingValues }
     if (typeMissing && selectedType) overrides["type"] = selectedType
 
-    // Merge rows from main file and additional files
     const allRawRows = [
       ...parseResult.validation.rows,
       ...additionalParseResults.flatMap((r) => r.validation.rows),
     ]
 
     const rows: SupportRow[] = allRawRows.map((row) => {
-      const updated = { ...row }
-      const rowType = updated.type || overrides["type"] || ""
+      const updated: SupportRow = { ...row, lengths: { ...row.lengths }, itemQtys: {} }
       const remainingMissing: string[] = []
+
+      // Apply overrides from missing columns form
       for (const field of row._missingFields) {
-        if (overrides[field]?.trim()) {
-          ;(updated as unknown as Record<string, string>)[field] = overrides[field].trim()
+        const override = overrides[field]?.trim()
+        if (override) {
+          if (field.startsWith("lengths.")) {
+            const sub = field.slice("lengths.".length) as LengthKey
+            updated.lengths[sub] = override
+          } else {
+            ;(updated as unknown as Record<string, string>)[field] = override
+          }
         } else {
           remainingMissing.push(field)
         }
@@ -221,56 +222,26 @@ export default function UploadPage() {
         const idx = remainingMissing.indexOf("type")
         if (idx !== -1) remainingMissing.splice(idx, 1)
       }
-      // Populate dynamic items array from project type config
-      const normalizedType = (updated.type || rowType).trim().toLowerCase()
+
+      // Populate itemQtys from project type config
+      const normalizedType = updated.type.trim().toLowerCase()
       const typeConfig = typeConfigs.find((t: SupportTypeConfig) => t.typeName.trim().toLowerCase() === normalizedType)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const legacyConfig = typeConfig as any
-      if (typeConfig?.items && typeConfig.items.length > 0) {
-        // New structure: items[] with itemName, qty, make, model
-        updated.items = typeConfig.items.map((item) => ({
-          name: item.itemName,
-          qty: item.qty || "",
-        }))
-        typeConfig.items.forEach((item, i) => {
-          const prefix = `item0${i + 1}`
-          if (i < 3) {
-            ;(updated as unknown as Record<string, string>)[`${prefix}Name`] = item.itemName
-            ;(updated as unknown as Record<string, string>)[`${prefix}Qty`] = item.qty || ""
-          }
-        })
-      } else if (legacyConfig?.item01 || legacyConfig?.item02 || legacyConfig?.item03) {
-        // Legacy structure: item01/item02/item03 objects with name/qty
-        const legacyItems = []
-        for (let i = 1; i <= 3; i++) {
-          const key = `item0${i}`
-          if (legacyConfig[key]?.name) {
-            legacyItems.push({ name: legacyConfig[key].name, qty: legacyConfig[key].qty || "" })
-          }
-        }
-        updated.items = legacyItems
-        legacyItems.forEach((item, i) => {
-          const prefix = `item0${i + 1}`
-          ;(updated as unknown as Record<string, string>)[`${prefix}Name`] = item.name
-          ;(updated as unknown as Record<string, string>)[`${prefix}Qty`] = item.qty
-        })
-      } else {
-        updated.items = []
-      }
-      // Remove item fields from missing list when populated from project config
-      if (updated.items.length > 0) {
-        for (let i = 0; i < updated.items.length && i < 3; i++) {
-          const prefix = `item0${i + 1}`
-          for (const suffix of ["Name", "Qty"]) {
-            const idx = remainingMissing.indexOf(`${prefix}${suffix}`)
-            if (idx !== -1) remainingMissing.splice(idx, 1)
+      if (typeConfig?.items) {
+        for (const item of typeConfig.items) {
+          if (item.variants && item.variants.length > 0) {
+            const perVariant: Record<string, string> = {}
+            for (const v of item.variants) perVariant[v.label] = v.qty || ""
+            updated.itemQtys[item.itemName] = perVariant
+          } else {
+            updated.itemQtys[item.itemName] = { "": item.qty || "" }
           }
         }
       }
-      updated.total = calcTotal(updated)
+
+      updated.total = calcTotal(updated.lengths)
       const ti = remainingMissing.indexOf("total"); if (ti !== -1) remainingMissing.splice(ti, 1)
       updated._missingFields = remainingMissing
-      updated._hasErrors = remainingMissing.some((f) => ["supportTagName", "type"].includes(f))
+      updated._hasErrors = remainingMissing.some((f) => ["tagNumber", "type"].includes(f))
       return updated
     })
 
@@ -284,7 +255,7 @@ export default function UploadPage() {
     for (const row of rows) { const t = row.type || "Unknown"; if (!grouped[t]) grouped[t] = []; grouped[t].push(row) }
     setGroupedSupports(grouped)
     setCurrentProject(projectId, project?.clientName || "")
-    const supportKeys = rows.map((r) => r.supportTagName).filter(Boolean)
+    const supportKeys = rows.map((r) => r.tagNumber).filter(Boolean)
 
     // Duplicate detection: compare against existing uploads in the project
     const existingKeys = new Set<string>()
