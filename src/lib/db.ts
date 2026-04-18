@@ -14,6 +14,10 @@ const pool = new Pool({
 let migrationPromise: Promise<void> | null = null
 async function runMigrations(): Promise<void> {
   const statements = [
+    `CREATE TABLE IF NOT EXISTS settings (
+       key   VARCHAR(100) PRIMARY KEY,
+       value TEXT NOT NULL DEFAULT ''
+     )`,
     `ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]'::jsonb`,
     `ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]'::jsonb`,
   ]

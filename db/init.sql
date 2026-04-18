@@ -21,6 +21,13 @@ INSERT INTO users (username, password_hash, role) VALUES
   ('Client', 'client123',   'client')
 ON CONFLICT (username) DO NOTHING;
 
+-- ── Settings: Key/Value Store (PDF template, etc.) ─────────────────
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   VARCHAR(100) PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
+
 -- ── Settings: Master Items ──────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS master_items (

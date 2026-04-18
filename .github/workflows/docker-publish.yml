@@ -50,19 +50,29 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Redeploy on Portainer
+      - name: Redeploy on Portainer (non-blocking)
+        # Auto-deploy is best-effort. If Portainer is unreachable (EC2 off,
+        # DNS issue, etc.) we still want the workflow to pass — the image is
+        # already published to GHCR and the stack can be updated manually.
+        continue-on-error: true
         run: |
+          set +e
           curl -X PUT \
             "https://portainer.inventivebizsol.co.in/api/stacks/72/git/redeploy?endpointId=1" \
             -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{"pullImage": true, "prune": false}' \
-            --fail --silent --show-error || \
-          curl -X POST \
-            "https://portainer.inventivebizsol.co.in/api/stacks/72/stop" \
-            -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
-            --silent && \
-          curl -X POST \
-            "https://portainer.inventivebizsol.co.in/api/stacks/72/start" \
-            -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
-            --silent
+            --fail --silent --show-error --max-time 30
+          PUT_EXIT=$?
+          if [ "$PUT_EXIT" -ne 0 ]; then
+            echo "::warning::Portainer redeploy PUT failed (exit $PUT_EXIT); trying stop/start fallback."
+            curl -X POST \
+              "https://portainer.inventivebizsol.co.in/api/stacks/72/stop" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
+              --silent --max-time 30
+            curl -X POST \
+              "https://portainer.inventivebizsol.co.in/api/stacks/72/start" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_TOKEN }}" \
+              --silent --max-time 30
+          fi
+          exit 0
