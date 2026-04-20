@@ -7,7 +7,7 @@ import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import type { MasterTypeItem, ItemVariant } from "@/types/support"
 
-type ManagedUser = { username: string; role: "admin" | "user" | "client"; createdAt: string }
+type ManagedUser = { username: string; role: "admin" | "user" | "client"; password: string; createdAt: string }
 
 export default function SettingsPage() {
   const { masterItems, addItem, removeItem, renameItem, masterTypes, addMasterType, updateMasterType, removeMasterType, pdfConfig, updatePdfConfig } = useSettings()
@@ -93,6 +93,43 @@ export default function SettingsPage() {
       return
     }
     setResetPwFor(null); setResetPwValue("")
+  }
+
+  // ─── Self-service password change (any logged-in user) ───
+  const [myCurrentPw, setMyCurrentPw] = useState("")
+  const [myNewPw, setMyNewPw] = useState("")
+  const [myConfirmPw, setMyConfirmPw] = useState("")
+  const [myPwError, setMyPwError] = useState("")
+  const [myPwSuccess, setMyPwSuccess] = useState(false)
+  const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set())
+
+  const toggleReveal = (username: string) => {
+    setRevealedPasswords((prev) => {
+      const next = new Set(prev)
+      if (next.has(username)) next.delete(username); else next.add(username)
+      return next
+    })
+  }
+
+  const handleChangeMyPassword = async () => {
+    if (!currentUser) return
+    setMyPwError(""); setMyPwSuccess(false)
+    if (!myCurrentPw || !myNewPw) { setMyPwError("Fill all fields"); return }
+    if (myNewPw !== myConfirmPw) { setMyPwError("New passwords don't match"); return }
+    if (myNewPw.length < 4) { setMyPwError("New password must be at least 4 characters"); return }
+    const res = await fetch("/api/users/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: currentUser.username, currentPassword: myCurrentPw, newPassword: myNewPw }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setMyPwError(data.error || `Failed (${res.status})`)
+      return
+    }
+    setMyCurrentPw(""); setMyNewPw(""); setMyConfirmPw("")
+    setMyPwSuccess(true)
+    fetchUsers()
   }
 
   const handleUpdateRole = async (username: string, role: "admin" | "user" | "client") => {
@@ -368,6 +405,39 @@ export default function SettingsPage() {
         Manage master items and support type templates.
       </p>
 
+      {/* ─── Change My Password (all users) ─── */}
+      {currentUser && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Change My Password
+          </h2>
+          <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-4)" }}>
+            Signed in as <strong>{currentUser.username}</strong> ({currentUser.role}).
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr) auto", gap: "var(--space-3)", alignItems: "end", maxWidth: 700 }}>
+            <div>
+              <label style={labelStyle}>Current password</label>
+              <input type="password" value={myCurrentPw} onChange={(e) => { setMyCurrentPw(e.target.value); setMyPwError(""); setMyPwSuccess(false) }} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>New password</label>
+              <input type="password" value={myNewPw} onChange={(e) => { setMyNewPw(e.target.value); setMyPwError(""); setMyPwSuccess(false) }} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Confirm new</label>
+              <input type="password" value={myConfirmPw} onChange={(e) => { setMyConfirmPw(e.target.value); setMyPwError(""); setMyPwSuccess(false) }} style={inputStyle} />
+            </div>
+            <ActionButton variant="primary" size="sm" onClick={handleChangeMyPassword} disabled={!myCurrentPw || !myNewPw || !myConfirmPw}>Update</ActionButton>
+          </div>
+          {myPwError && (
+            <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginTop: "var(--space-3)" }}>{myPwError}</div>
+          )}
+          {myPwSuccess && (
+            <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-success-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-success)", marginTop: "var(--space-3)" }}>Password updated.</div>
+          )}
+        </div>
+      )}
+
       {/* ─── User Management (admin only) ─── */}
       {isAdmin && (
         <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
@@ -423,6 +493,19 @@ export default function SettingsPage() {
                       <option value="client">client</option>
                     </select>
                     {isSelf && <StatusBadge variant="info">you</StatusBadge>}
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", fontFamily: "monospace", fontSize: "0.75rem", color: "var(--color-text-muted)", minWidth: 140 }}>
+                      <span>Pw:</span>
+                      <code style={{ background: "var(--color-surface)", padding: "2px 6px", borderRadius: 3, border: "1px solid var(--color-border)" }}>
+                        {revealedPasswords.has(u.username) ? u.password : "••••••••"}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => toggleReveal(u.username)}
+                        style={{ fontFamily: "var(--font-display)", fontSize: "0.6875rem", color: "var(--color-primary)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+                      >
+                        {revealedPasswords.has(u.username) ? "hide" : "show"}
+                      </button>
+                    </div>
                     <span style={{ flex: 1 }} />
                     {resetPwFor === u.username ? (
                       <>

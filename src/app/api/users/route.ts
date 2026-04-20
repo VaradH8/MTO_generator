@@ -24,17 +24,20 @@ async function requireAdmin(req: NextRequest): Promise<NextResponse | null> {
   return null
 }
 
-// GET /api/users — list all users (admin only)
+// GET /api/users — list all users (admin only).
+// Includes password_hash (plaintext in this app) so admins can view credentials
+// from the Settings screen. Never expose via a non-admin-gated endpoint.
 export async function GET(req: NextRequest) {
   const deny = await requireAdmin(req)
   if (deny) return deny
   try {
     const { rows } = await pool.query(
-      `SELECT username, role, created_at FROM users ORDER BY created_at ASC`
+      `SELECT username, role, password_hash, created_at FROM users ORDER BY created_at ASC`
     )
-    return NextResponse.json(rows.map((r: { username: string; role: string; created_at: string }) => ({
+    return NextResponse.json(rows.map((r: { username: string; role: string; password_hash: string; created_at: string }) => ({
       username: r.username,
       role: r.role,
+      password: r.password_hash,
       createdAt: r.created_at,
     })))
   } catch (error: unknown) {
