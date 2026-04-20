@@ -6,14 +6,13 @@ function generateId() {
 }
 
 function calculateAmount(totalSupports: number, totalRevisions: number): number {
-  // First 100 supports = $200 flat
+  // First 100 supports = $190 flat
   // After 100 = $1 each
   // Each revision = $50
   let amount = 0
-  if (totalSupports <= 100) {
-    amount = 200
-  } else {
-    amount = 200 + (totalSupports - 100) * 1
+  if (totalSupports > 0) {
+    amount = 190
+    if (totalSupports > 100) amount += totalSupports - 100
   }
   amount += totalRevisions * 50
   return amount

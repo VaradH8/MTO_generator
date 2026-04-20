@@ -131,7 +131,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Blob> {
   const revisionCharges = data.revisionCount * 50
 
   const pricingRows = [
-    ["Base rate \u2014 first 100 supports", data.totalSupports > 0 ? "100" : "0", "$200.00", data.totalSupports > 0 ? "$200.00" : "$0.00"],
+    ["Base rate \u2014 first 100 supports", data.totalSupports > 0 ? "100" : "0", "$190.00", data.totalSupports > 0 ? "$190.00" : "$0.00"],
     ["Additional supports @ $1.00/ea", String(additionalSupports), "$1.00", `$${additionalSupports.toFixed(2)}`],
     ["Revisions @ $50.00/ea", String(data.revisionCount), "$50.00", `$${revisionCharges.toFixed(2)}`],
   ]

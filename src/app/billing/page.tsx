@@ -198,10 +198,10 @@ export default function BillingPage() {
                 {baseSupports}
               </td>
               <td style={{ textAlign: "center", fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)", padding: "var(--space-3)" }}>
-                $200 flat
+                $190 flat
               </td>
               <td style={{ textAlign: "right", fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)", padding: "var(--space-3)" }}>
-                {currentTotalSupports > 0 ? "$200.00" : "$0.00"}
+                {currentTotalSupports > 0 ? "$190.00" : "$0.00"}
               </td>
             </tr>
             {additionalSupports > 0 && (

@@ -7,7 +7,7 @@ const EMPTY_STATE: BillingState = { currentEntries: [], history: [] }
 
 /**
  * Pricing rules:
- * - First 100 supports = $200 flat
+ * - First 100 supports = $190 flat
  * - After 100 = $1 per additional support
  * - Each revision = $50 flat
  * - Min supports per revision = 150, Max = 300
@@ -17,7 +17,7 @@ export function calculateAmount(totalSupports: number, revisionCount: number): n
 
   // Support charges
   if (totalSupports > 0) {
-    amount += 200 // base rate for first 100
+    amount += 190 // base rate for first 100
     if (totalSupports > 100) {
       amount += totalSupports - 100 // $1 per additional
     }
