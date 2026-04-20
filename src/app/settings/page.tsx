@@ -1,13 +1,115 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { useSettings } from "@/context/SettingsContext"
+import { useAuth } from "@/context/AuthContext"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import type { MasterTypeItem, ItemVariant } from "@/types/support"
 
+type ManagedUser = { username: string; role: "admin" | "user" | "client"; createdAt: string }
+
 export default function SettingsPage() {
   const { masterItems, addItem, removeItem, renameItem, masterTypes, addMasterType, updateMasterType, removeMasterType, pdfConfig, updatePdfConfig } = useSettings()
+  const { user: currentUser } = useAuth()
+  const isAdmin = currentUser?.role === "admin"
+
+  // ─── User management (admin only) ───
+  const [users, setUsers] = useState<ManagedUser[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState("")
+  const [newUsername, setNewUsername] = useState("")
+  const [newUserPassword, setNewUserPassword] = useState("")
+  const [newUserRole, setNewUserRole] = useState<"admin" | "user" | "client">("user")
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<string | null>(null)
+  const [resetPwFor, setResetPwFor] = useState<string | null>(null)
+  const [resetPwValue, setResetPwValue] = useState("")
+
+  const fetchUsers = useCallback(async () => {
+    if (!isAdmin || !currentUser) return
+    setUsersLoading(true)
+    setUsersError("")
+    try {
+      const res = await fetch("/api/users", { headers: { "x-username": currentUser.username } })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setUsersError(data.error || `Failed to load users (${res.status})`)
+        return
+      }
+      setUsers(await res.json())
+    } catch (e) {
+      setUsersError(e instanceof Error ? e.message : "Failed to load users")
+    } finally {
+      setUsersLoading(false)
+    }
+  }, [isAdmin, currentUser])
+
+  useEffect(() => { fetchUsers() }, [fetchUsers])
+
+  const handleCreateUser = async () => {
+    if (!currentUser || !newUsername.trim() || !newUserPassword) return
+    setUsersError("")
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-username": currentUser.username },
+      body: JSON.stringify({ username: newUsername.trim(), password: newUserPassword, role: newUserRole }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setUsersError(data.error || `Failed to create user (${res.status})`)
+      return
+    }
+    setNewUsername(""); setNewUserPassword(""); setNewUserRole("user")
+    fetchUsers()
+  }
+
+  const handleDeleteUser = async (username: string) => {
+    if (!currentUser) return
+    setUsersError("")
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+      method: "DELETE",
+      headers: { "x-username": currentUser.username },
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setUsersError(data.error || `Failed to delete user (${res.status})`)
+      return
+    }
+    setConfirmDeleteUser(null)
+    fetchUsers()
+  }
+
+  const handleResetPassword = async () => {
+    if (!currentUser || !resetPwFor || !resetPwValue) return
+    setUsersError("")
+    const res = await fetch(`/api/users/${encodeURIComponent(resetPwFor)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "x-username": currentUser.username },
+      body: JSON.stringify({ password: resetPwValue }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setUsersError(data.error || `Failed to reset password (${res.status})`)
+      return
+    }
+    setResetPwFor(null); setResetPwValue("")
+  }
+
+  const handleUpdateRole = async (username: string, role: "admin" | "user" | "client") => {
+    if (!currentUser) return
+    setUsersError("")
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "x-username": currentUser.username },
+      body: JSON.stringify({ role }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setUsersError(data.error || `Failed to update role (${res.status})`)
+      return
+    }
+    fetchUsers()
+  }
 
   // Item state
   const [newItemName, setNewItemName] = useState("")
@@ -265,6 +367,87 @@ export default function SettingsPage() {
       <p style={{ fontFamily: "var(--font-body)", fontSize: "1rem", color: "var(--color-text-muted)", marginBottom: "var(--space-8)" }}>
         Manage master items and support type templates.
       </p>
+
+      {/* ─── User Management (admin only) ─── */}
+      {isAdmin && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Users ({users.length})
+          </h2>
+          <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-4)" }}>
+            Add and manage application users. Only admins see this section.
+          </p>
+
+          {/* Add user row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px auto", gap: "var(--space-3)", marginBottom: "var(--space-4)", alignItems: "end" }}>
+            <div>
+              <label style={labelStyle}>Username</label>
+              <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="e.g. alice" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Password</label>
+              <input type="password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} placeholder="Password" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Role</label>
+              <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value as "admin" | "user" | "client")} style={{ ...inputStyle, cursor: "pointer" }}>
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+                <option value="client">client</option>
+              </select>
+            </div>
+            <ActionButton variant="primary" size="sm" onClick={handleCreateUser} disabled={!newUsername.trim() || !newUserPassword}>Add User</ActionButton>
+          </div>
+
+          {usersError && (
+            <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginBottom: "var(--space-3)" }}>{usersError}</div>
+          )}
+
+          {usersLoading ? (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-faint)" }}>Loading…</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+              {users.map((u) => {
+                const isSelf = u.username === currentUser?.username
+                return (
+                  <div key={u.username} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-2) var(--space-3)", background: "var(--color-surface-2)", borderRadius: "var(--radius-sm)", flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)", minWidth: 120 }}>{u.username}</span>
+                    <select
+                      value={u.role}
+                      disabled={isSelf}
+                      onChange={(e) => handleUpdateRole(u.username, e.target.value as "admin" | "user" | "client")}
+                      style={{ ...inputStyle, height: 28, fontSize: "0.75rem", width: 100, cursor: isSelf ? "not-allowed" : "pointer", opacity: isSelf ? 0.5 : 1 }}
+                    >
+                      <option value="user">user</option>
+                      <option value="admin">admin</option>
+                      <option value="client">client</option>
+                    </select>
+                    {isSelf && <StatusBadge variant="info">you</StatusBadge>}
+                    <span style={{ flex: 1 }} />
+                    {resetPwFor === u.username ? (
+                      <>
+                        <input type="password" value={resetPwValue} onChange={(e) => setResetPwValue(e.target.value)} placeholder="New password" autoFocus style={{ ...inputStyle, width: 160, height: 28, fontSize: "0.75rem" }} />
+                        <ActionButton variant="primary" size="sm" onClick={handleResetPassword} disabled={!resetPwValue}>Set</ActionButton>
+                        <ActionButton variant="ghost" size="sm" onClick={() => { setResetPwFor(null); setResetPwValue("") }}>Cancel</ActionButton>
+                      </>
+                    ) : (
+                      <ActionButton variant="ghost" size="sm" onClick={() => { setResetPwFor(u.username); setResetPwValue("") }}>Reset password</ActionButton>
+                    )}
+                    {!isSelf && (confirmDeleteUser === u.username ? (
+                      <>
+                        <ActionButton variant="destructive" size="sm" onClick={() => handleDeleteUser(u.username)}>Delete</ActionButton>
+                        <ActionButton variant="ghost" size="sm" onClick={() => setConfirmDeleteUser(null)}>Cancel</ActionButton>
+                      </>
+                    ) : (
+                      <ActionButton variant="ghost" size="sm" onClick={() => setConfirmDeleteUser(u.username)}>Remove</ActionButton>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ─── Data Backup ─── */}
       <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
