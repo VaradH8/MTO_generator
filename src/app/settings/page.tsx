@@ -5,6 +5,7 @@ import { useSettings } from "@/context/SettingsContext"
 import { useAuth } from "@/context/AuthContext"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
+import * as XLSX from "xlsx"
 import type { MasterTypeItem, ItemVariant } from "@/types/support"
 
 type ManagedUser = { username: string; role: "admin" | "user" | "client"; password: string; createdAt: string }
@@ -333,7 +334,7 @@ export default function SettingsPage() {
             }
             const addVariant = () => {
               setItems(items.map((i) => i.itemId === item.itemId
-                ? { ...i, variants: [...(i.variants || []), { label: "", qty: "" }] }
+                ? { ...i, variants: [...(i.variants || []), { label: "", qty: "", make: "", model: "" }] }
                 : i))
             }
             const removeVariant = (idx: number) => {
@@ -377,7 +378,7 @@ export default function SettingsPage() {
                 {hasVariants && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", paddingLeft: "var(--space-3)", borderLeft: "2px solid var(--color-primary-soft)" }}>
                     {(item.variants || []).map((v, idx) => (
-                      <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 70px auto", gap: "var(--space-2)", alignItems: "end" }}>
+                      <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr 1fr auto", gap: "var(--space-2)", alignItems: "end" }}>
                         <div>
                           <label style={labelStyle}>Size label</label>
                           <input value={v.label} onChange={(e) => updateVariant(idx, "label", e.target.value)} placeholder="e.g. 2(50,50)" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
@@ -385,6 +386,14 @@ export default function SettingsPage() {
                         <div>
                           <label style={labelStyle}>Qty</label>
                           <input type="number" min="0" value={v.qty} onChange={(e) => updateVariant(idx, "qty", e.target.value)} placeholder="0" style={{ ...inputStyle, height: 32, fontSize: "0.75rem", textAlign: "center" }} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Make</label>
+                          <input value={v.make || ""} onChange={(e) => updateVariant(idx, "make", e.target.value)} placeholder="Make" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Model</label>
+                          <input value={v.model || ""} onChange={(e) => updateVariant(idx, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
                         </div>
                         <ActionButton variant="ghost" size="sm" onClick={() => removeVariant(idx)}>×</ActionButton>
                       </div>
@@ -599,6 +608,40 @@ export default function SettingsPage() {
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", flex: 1 }}>
             Master Type Config ({masterTypes.length})
           </h2>
+          {masterTypes.length > 0 && (
+            <>
+              <ActionButton variant="secondary" size="sm" onClick={() => {
+                const rows: Record<string, string>[] = []
+                for (const mt of masterTypes) {
+                  for (const it of mt.items) {
+                    const vars = it.variants && it.variants.length > 0 ? it.variants : [null]
+                    for (const v of vars) {
+                      rows.push({
+                        "Type Name": mt.typeName,
+                        "Classification": mt.classification || "internal",
+                        "Item": it.itemName,
+                        "Variant Label": v?.label || "",
+                        "Qty": v?.qty ?? it.qty,
+                        "Make": v?.make || it.make || "",
+                        "Model": v?.model || it.model || "",
+                      })
+                    }
+                  }
+                }
+                const ws = XLSX.utils.json_to_sheet(rows)
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws, "Master Types")
+                XLSX.writeFile(wb, `master_types_${new Date().toISOString().split("T")[0]}.xlsx`)
+              }}>Download XLSX</ActionButton>
+              <ActionButton variant="secondary" size="sm" onClick={() => {
+                const blob = new Blob([JSON.stringify(masterTypes, null, 2)], { type: "application/json" })
+                const a = document.createElement("a")
+                a.href = URL.createObjectURL(blob)
+                a.download = `master_types_${new Date().toISOString().split("T")[0]}.json`
+                a.click()
+              }}>JSON</ActionButton>
+            </>
+          )}
           {!addingType && (
             <ActionButton variant="primary" size="sm" onClick={() => setAddingType(true)}>+ Add Type</ActionButton>
           )}

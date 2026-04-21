@@ -6,6 +6,10 @@ export interface ItemVariant {
   /** Display label, e.g. "2(50,50)" or "(100,50)" */
   label: string
   qty: string
+  /** Optional per-variant make. Falls back to parent item's make if empty. */
+  make?: string
+  /** Optional per-variant model. Falls back to parent item's model if empty. */
+  model?: string
 }
 
 export interface SupportRow {
