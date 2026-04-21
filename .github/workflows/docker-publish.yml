@@ -49,7 +49,7 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/varadh8/mto_generator,push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
         run: |
@@ -92,7 +92,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/varadh8/mto_generator
           tags: |
             type=raw,value=latest
             type=sha,prefix=
@@ -101,7 +101,7 @@ jobs:
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+            $(printf '${{ env.REGISTRY }}/varadh8/mto_generator@sha256:%s ' *)
 
       - name: Redeploy on Portainer (non-blocking)
         continue-on-error: true
