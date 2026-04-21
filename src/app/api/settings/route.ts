@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest) {
 
     // Master types with their items
     const { rows: typeRows } = await pool.query(
-      `SELECT id, type_name FROM master_types ORDER BY type_name`
+      `SELECT id, type_name, classification FROM master_types ORDER BY type_name`
     )
     const masterTypes = await Promise.all(
       typeRows.map(async (t: any) => {
@@ -36,6 +36,7 @@ export async function GET(_req: NextRequest) {
         return {
           id: t.id,
           typeName: t.type_name,
+          classification: t.classification ?? "internal",
           items: typeItems.map((i: any) => ({
             itemId: i.item_id,
             itemName: i.item_name,
@@ -104,8 +105,8 @@ export async function PUT(req: NextRequest) {
       for (const type of masterTypes) {
         const typeId = type.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
         await client.query(
-          `INSERT INTO master_types (id, type_name) VALUES ($1, $2)`,
-          [typeId, type.typeName]
+          `INSERT INTO master_types (id, type_name, classification) VALUES ($1, $2, $3)`,
+          [typeId, type.typeName, type.classification || "internal"]
         )
         if (type.items) {
           for (const item of type.items) {

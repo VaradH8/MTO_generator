@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest) {
       projects.map(async (p: any) => {
         // Support types with items
         const { rows: types } = await pool.query(
-          `SELECT id, type_name FROM project_support_types WHERE project_id = $1`,
+          `SELECT id, type_name, classification FROM project_support_types WHERE project_id = $1`,
           [p.id]
         )
         const supportTypes = await Promise.all(
@@ -29,6 +29,7 @@ export async function GET(_req: NextRequest) {
             )
             return {
               typeName: t.type_name,
+              classification: t.classification ?? "internal",
               items: items.map((i: any) => ({
                 itemId: i.item_id,
                 itemName: i.item_name,

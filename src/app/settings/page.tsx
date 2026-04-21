@@ -157,9 +157,11 @@ export default function SettingsPage() {
   // Type state
   const [addingType, setAddingType] = useState(false)
   const [newTypeName, setNewTypeName] = useState("")
+  const [newTypeClassification, setNewTypeClassification] = useState<"internal" | "external">("internal")
   const [newTypeItems, setNewTypeItems] = useState<MasterTypeItem[]>([])
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
   const [editTypeName, setEditTypeName] = useState("")
+  const [editTypeClassification, setEditTypeClassification] = useState<"internal" | "external">("internal")
   const [editTypeItems, setEditTypeItems] = useState<MasterTypeItem[]>([])
   const [confirmDeleteType, setConfirmDeleteType] = useState<string | null>(null)
   const [typeError, setTypeError] = useState("")
@@ -249,9 +251,10 @@ export default function SettingsPage() {
     const err = validateItemQtys(newTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    addMasterType({ typeName: newTypeName.trim(), items: newTypeItems })
+    addMasterType({ typeName: newTypeName.trim(), classification: newTypeClassification, items: newTypeItems })
     setAddingType(false)
     setNewTypeName("")
+    setNewTypeClassification("internal")
     setNewTypeItems([])
   }
 
@@ -260,6 +263,7 @@ export default function SettingsPage() {
     if (!t) return
     setEditingTypeId(id)
     setEditTypeName(t.typeName)
+    setEditTypeClassification(t.classification || "internal")
     setEditTypeItems(t.items.map((i) => ({ ...i })))
   }
 
@@ -268,7 +272,7 @@ export default function SettingsPage() {
     const err = validateItemQtys(editTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), items: editTypeItems })
+    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), classification: editTypeClassification, items: editTypeItems })
     setEditingTypeId(null)
   }
 
@@ -609,12 +613,22 @@ export default function SettingsPage() {
             <div style={{ marginBottom: "var(--space-3)" }}>
               <label style={labelStyle}>Type Name</label>
               <input value={newTypeName} onChange={(e) => { setNewTypeName(e.target.value); setTypeError("") }} placeholder="e.g. L01" style={{ ...inputStyle, maxWidth: 200, fontWeight: 600 }} />
+              <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                  <input type="radio" checked={newTypeClassification === "internal"} onChange={() => setNewTypeClassification("internal")} />
+                  Internal
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                  <input type="radio" checked={newTypeClassification === "external"} onChange={() => setNewTypeClassification("external")} />
+                  External
+                </label>
+              </div>
             </div>
             <label style={{ ...labelStyle, marginBottom: "var(--space-2)" }}>Select Items</label>
             {renderItemConfig(newTypeItems, setNewTypeItems)}
             {typeError && <div className="animate-fade-in-down" style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginTop: "var(--space-3)" }}>{typeError}</div>}
             <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-4)" }}>
-              <ActionButton variant="ghost" size="sm" onClick={() => { setAddingType(false); setNewTypeName(""); setNewTypeItems([]); setTypeError("") }}>Cancel</ActionButton>
+              <ActionButton variant="ghost" size="sm" onClick={() => { setAddingType(false); setNewTypeName(""); setNewTypeClassification("internal"); setNewTypeItems([]); setTypeError("") }}>Cancel</ActionButton>
               <ActionButton variant="primary" size="sm" onClick={handleSaveNewType}>Save Type</ActionButton>
             </div>
           </div>
@@ -635,6 +649,16 @@ export default function SettingsPage() {
                     <div style={{ marginBottom: "var(--space-3)" }}>
                       <label style={labelStyle}>Type Name</label>
                       <input value={editTypeName} onChange={(e) => setEditTypeName(e.target.value)} style={{ ...inputStyle, maxWidth: 200, fontWeight: 600 }} />
+                      <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                          <input type="radio" checked={editTypeClassification === "internal"} onChange={() => setEditTypeClassification("internal")} />
+                          Internal
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                          <input type="radio" checked={editTypeClassification === "external"} onChange={() => setEditTypeClassification("external")} />
+                          External
+                        </label>
+                      </div>
                     </div>
                     <label style={{ ...labelStyle, marginBottom: "var(--space-2)" }}>Items</label>
                     {renderItemConfig(editTypeItems, setEditTypeItems)}

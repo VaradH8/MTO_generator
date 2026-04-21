@@ -40,8 +40,8 @@ export default function UploadPage() {
   const project = projects.find((p) => p.id === projectId) || null
   const fromProject = !!urlProjectId // came from project detail page
 
-  const typeNames = projectId ? getTypeNames(projectId) : []
   const typeConfigs = projectId ? getTypeConfigs(projectId) : []
+  const typeNames = projectId ? getTypeNames(projectId) : []
   const hasProjectTypes = typeNames.length > 0
 
   // File + parsing state
@@ -421,19 +421,28 @@ export default function UploadPage() {
                 </div>
               </div>
 
-              {typeMissing && (
-                <div style={cardStyle}>
-                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>Support Type</h2>
-                  {hasProjectTypes ? (
-                    <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} style={{ ...inputStyle, maxWidth: 300, cursor: "pointer" }}>
-                      <option value="">Select type...</option>
-                      {typeNames.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  ) : (
-                    <div style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-warning)" }}>No types configured.</div>
-                  )}
-                </div>
-              )}
+              {typeMissing && (() => {
+                const filteredTypeNames = typeConfigs
+                  .filter((tc) => (tc.classification || "internal") === classification)
+                  .map((tc) => tc.typeName)
+                return (
+                  <div style={cardStyle}>
+                    <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+                      Support Type <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--color-text-muted)" }}>({classification} only)</span>
+                    </h2>
+                    {filteredTypeNames.length > 0 ? (
+                      <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} style={{ ...inputStyle, maxWidth: 300, cursor: "pointer" }}>
+                        <option value="">Select type...</option>
+                        {filteredTypeNames.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    ) : (
+                      <div style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-warning)" }}>
+                        No {classification} types configured for this project.
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {Object.keys(missingValues).length > 0 && (
                 <div style={cardStyle}>

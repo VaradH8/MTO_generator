@@ -26,6 +26,7 @@ export default function ProjectsPage() {
   // "Add New" type inline state
   const [addingCustom, setAddingCustom] = useState(false)
   const [customTypeName, setCustomTypeName] = useState("")
+  const [customClassification, setCustomClassification] = useState<"internal" | "external">("internal")
   const [customItems, setCustomItems] = useState<TypeItemConfig[]>([])
   const [saveToMaster, setSaveToMaster] = useState(false)
   const [customError, setCustomError] = useState("")
@@ -69,6 +70,7 @@ export default function ProjectsPage() {
     if (editTypes.some((t) => t.typeName === mt.typeName)) return
     const newType: SupportTypeConfig = {
       typeName: mt.typeName,
+      classification: mt.classification || "internal",
       items: mt.items.map((i: MasterTypeItem) => ({
         itemId: i.itemId,
         itemName: i.itemName,
@@ -104,12 +106,13 @@ export default function ProjectsPage() {
     setCustomError("")
 
     // Add to project types
-    setEditTypes((prev) => [...prev, { typeName: customTypeName.trim(), items: customItems }])
+    setEditTypes((prev) => [...prev, { typeName: customTypeName.trim(), classification: customClassification, items: customItems }])
 
     // Optionally save to master config
     if (saveToMaster) {
       addMasterType({
         typeName: customTypeName.trim(),
+        classification: customClassification,
         items: customItems.map((i) => ({
           itemId: i.itemId, itemName: i.itemName, qty: i.qty, make: i.make, model: i.model,
           variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
@@ -119,6 +122,7 @@ export default function ProjectsPage() {
 
     setAddingCustom(false)
     setCustomTypeName("")
+    setCustomClassification("internal")
     setCustomItems([])
     setSaveToMaster(false)
   }
@@ -259,6 +263,16 @@ export default function ProjectsPage() {
                     <div style={{ marginBottom: "var(--space-3)" }}>
                       <label style={labelStyle}>Type Name</label>
                       <input value={customTypeName} onChange={(e) => { setCustomTypeName(e.target.value); setCustomError("") }} placeholder="e.g. RF01" style={{ ...inputStyle, maxWidth: 200, fontWeight: 600 }} />
+                      <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                          <input type="radio" checked={customClassification === "internal"} onChange={() => setCustomClassification("internal")} />
+                          Internal
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                          <input type="radio" checked={customClassification === "external"} onChange={() => setCustomClassification("external")} />
+                          External
+                        </label>
+                      </div>
                     </div>
                     <label style={{ ...labelStyle, marginBottom: "var(--space-2)" }}>Select Items</label>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
@@ -299,7 +313,7 @@ export default function ProjectsPage() {
                     </label>
                     {customError && <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginBottom: "var(--space-3)" }}>{customError}</div>}
                     <div style={{ display: "flex", gap: "var(--space-3)" }}>
-                      <ActionButton variant="ghost" size="sm" onClick={() => { setAddingCustom(false); setCustomTypeName(""); setCustomItems([]); setCustomError("") }}>Cancel</ActionButton>
+                      <ActionButton variant="ghost" size="sm" onClick={() => { setAddingCustom(false); setCustomTypeName(""); setCustomClassification("internal"); setCustomItems([]); setCustomError("") }}>Cancel</ActionButton>
                       <ActionButton variant="primary" size="sm" onClick={handleSaveCustomType}>Add Type</ActionButton>
                     </div>
                   </div>

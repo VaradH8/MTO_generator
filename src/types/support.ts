@@ -41,6 +41,7 @@ export interface MasterItem {
 export interface MasterTypeConfig {
   id: string
   typeName: string
+  classification: "internal" | "external"
   items: MasterTypeItem[]
 }
 
@@ -68,6 +69,7 @@ export interface TypeItemConfig {
 
 export interface SupportTypeConfig {
   typeName: string
+  classification: "internal" | "external"
   items: TypeItemConfig[]
 }
 
