@@ -247,7 +247,7 @@ export default function SettingsPage() {
 
   const handleSaveNewType = () => {
     if (!newTypeName.trim()) { setTypeError("Type name required"); return }
-    if (masterTypes.some((t) => t.typeName.toLowerCase() === newTypeName.trim().toLowerCase())) { setTypeError("Type already exists"); return }
+    if (masterTypes.some((t) => t.typeName.toLowerCase() === newTypeName.trim().toLowerCase() && (t.classification || "internal") === newTypeClassification)) { setTypeError(`Type already exists as ${newTypeClassification}`); return }
     const err = validateItemQtys(newTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
@@ -634,16 +634,19 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Existing types */}
+        {/* Existing types — grouped by classification in two columns */}
         {masterTypes.length === 0 && !addingType && (
           <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-faint)", textAlign: "center", padding: "var(--space-4)" }}>No types configured yet.</p>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-          {masterTypes.map((mt) => {
+        {masterTypes.length > 0 && (() => {
+          const internalTypes = masterTypes.filter((t) => (t.classification || "internal") === "internal")
+          const externalTypes = masterTypes.filter((t) => (t.classification || "internal") === "external")
+
+          const renderTypeCard = (mt: typeof masterTypes[0]) => {
             const isEditing = editingTypeId === mt.id
             return (
-              <div key={mt.id} style={{ padding: "var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)" }}>
+              <div key={mt.id} style={{ padding: "var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)", marginBottom: "var(--space-3)" }}>
                 {isEditing ? (
                   <>
                     <div style={{ marginBottom: "var(--space-3)" }}>
@@ -692,8 +695,35 @@ export default function SettingsPage() {
                 )}
               </div>
             )
-          })}
-        </div>
+          }
+
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-3)", paddingBottom: "var(--space-2)", borderBottom: "2px solid var(--color-primary)" }}>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 700, color: "var(--color-primary)" }}>Internal</span>
+                  <StatusBadge variant="info">{internalTypes.length}</StatusBadge>
+                </div>
+                {internalTypes.length === 0 ? (
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-faint)", textAlign: "center", padding: "var(--space-3)" }}>No internal types.</p>
+                ) : (
+                  internalTypes.map(renderTypeCard)
+                )}
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-3)", paddingBottom: "var(--space-2)", borderBottom: "2px solid var(--color-warning)" }}>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 700, color: "var(--color-warning)" }}>External</span>
+                  <StatusBadge variant="warning">{externalTypes.length}</StatusBadge>
+                </div>
+                {externalTypes.length === 0 ? (
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-faint)", textAlign: "center", padding: "var(--space-3)" }}>No external types.</p>
+                ) : (
+                  externalTypes.map(renderTypeCard)
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* ─── PDF Template ─── */}

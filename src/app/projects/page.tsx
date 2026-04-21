@@ -53,9 +53,9 @@ export default function ProjectsPage() {
   const saveEdit = () => {
     if (!editingId) return
     const cleaned = editTypes.filter((t) => t.typeName.trim() !== "")
-    const names = cleaned.map((t) => t.typeName.trim().toLowerCase())
-    const dupes = names.filter((n, i) => names.indexOf(n) !== i)
-    if (dupes.length > 0) { setSaveError(`Duplicate type: ${dupes[0]}`); return }
+    const keys = cleaned.map((t) => `${t.typeName.trim().toLowerCase()}:${t.classification || "internal"}`)
+    const dupeIdx = keys.findIndex((k, i) => keys.indexOf(k) !== i)
+    if (dupeIdx !== -1) { setSaveError(`Duplicate type: ${cleaned[dupeIdx].typeName} (${cleaned[dupeIdx].classification})`); return }
     setSaveError("")
     updateProject(editingId, { supportTypes: cleaned, supportRange: parseInt(editRange) || 0 })
     setEditingId(null)
@@ -66,8 +66,8 @@ export default function ProjectsPage() {
   const handleAddFromMaster = (masterTypeId: string) => {
     const mt = masterTypes.find((t) => t.id === masterTypeId)
     if (!mt) return
-    // Check not already added
-    if (editTypes.some((t) => t.typeName === mt.typeName)) return
+    // Check not already added (same name + same classification)
+    if (editTypes.some((t) => t.typeName === mt.typeName && (t.classification || "internal") === (mt.classification || "internal"))) return
     const newType: SupportTypeConfig = {
       typeName: mt.typeName,
       classification: mt.classification || "internal",
@@ -99,7 +99,7 @@ export default function ProjectsPage() {
 
   const handleSaveCustomType = () => {
     if (!customTypeName.trim()) { setCustomError("Type name required"); return }
-    if (editTypes.some((t) => t.typeName.toLowerCase() === customTypeName.trim().toLowerCase())) { setCustomError("Already added"); return }
+    if (editTypes.some((t) => t.typeName.toLowerCase() === customTypeName.trim().toLowerCase() && (t.classification || "internal") === customClassification)) { setCustomError(`Already added as ${customClassification}`); return }
     for (const item of customItems) {
       if (!item.qty?.trim()) { setCustomError(`${item.itemName} needs qty`); return }
     }
@@ -147,7 +147,7 @@ export default function ProjectsPage() {
   }
 
   // Available master types not yet added
-  const availableMasterTypes = masterTypes.filter((mt) => !editTypes.some((t) => t.typeName === mt.typeName))
+  const availableMasterTypes = masterTypes.filter((mt) => !editTypes.some((t) => t.typeName === mt.typeName && (t.classification || "internal") === (mt.classification || "internal")))
 
   return (
     <div>
