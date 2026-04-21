@@ -37,7 +37,8 @@ export function ensureMigrations(): Promise<void> {
   return migrationPromise
 }
 
-// Fire-and-forget on module load so the pool is ready before the first query.
-ensureMigrations().catch((err) => console.error("[db] migration error:", err))
+// Migrations are triggered lazily on the first DB-using API request
+// (see wrapping in API routes), NOT at module load. Running them here
+// would fail at build time when DATABASE_URL points to an unreachable host.
 
 export default pool
