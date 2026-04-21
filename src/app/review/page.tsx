@@ -23,8 +23,9 @@ function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
 export default function ReviewPage() {
   const router = useRouter()
   const { validationResult, setValidationResult, setGroupedSupports, setApprovalSubmitted, currentProjectId } = useSupportContext()
-  const { getTypeConfigs } = useProjects()
+  const { getTypeConfigs, projects } = useProjects()
   const typeConfigs: SupportTypeConfig[] = currentProjectId ? getTypeConfigs(currentProjectId) : []
+  const projectMapping = currentProjectId ? (projects.find((p) => p.id === currentProjectId)?.mapping || {}) : {}
   const [generating, setGenerating] = useState(false)
   const [search, setSearch] = useState("")
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
@@ -54,15 +55,47 @@ export default function ReviewPage() {
 
   const { totalRows, totalTypes, missingFieldsCount, requiredMissingCount, rows } = validationResult
 
+  // Augment _missingFields with mapping-required cells that are empty.
+  // The mapping (from Mapping.xlsx) defines per-type which length inputs MUST have values.
+  const rowsWithMapping = useMemo(() => {
+    if (!projectMapping || Object.keys(projectMapping).length === 0) return rows
+    return rows.map((r) => {
+      const m = projectMapping[r.type]
+      if (!m || !m.required || m.required.length === 0) return r
+      const extra: string[] = []
+      for (const key of m.required) {
+        const val = String(r.lengths?.[key as LengthKey] ?? "").trim()
+        const field = `lengths.${key}`
+        if (!val && !r._missingFields.includes(field)) extra.push(field)
+      }
+      if (extra.length === 0) return r
+      return { ...r, _missingFields: [...r._missingFields, ...extra] }
+    })
+  }, [rows, projectMapping])
+
+  const mappingMissingCount = useMemo(() => {
+    if (!projectMapping || Object.keys(projectMapping).length === 0) return 0
+    let count = 0
+    for (const r of rowsWithMapping) {
+      const m = projectMapping[r.type]
+      if (!m) continue
+      for (const key of m.required) {
+        const val = String(r.lengths?.[key as LengthKey] ?? "").trim()
+        if (!val) count++
+      }
+    }
+    return count
+  }, [rowsWithMapping, projectMapping])
+
   const filteredRows = useMemo(() => {
-    if (!search.trim()) return rows
+    if (!search.trim()) return rowsWithMapping
     const q = search.toLowerCase()
-    return rows.filter((r) =>
+    return rowsWithMapping.filter((r) =>
       r.tagNumber.toLowerCase().includes(q) ||
       r.type.toLowerCase().includes(q) ||
       r.level.toLowerCase().includes(q)
     )
-  }, [rows, search])
+  }, [rowsWithMapping, search])
 
   const handleCellEdit = (rowIndex: number, colKey: string, value: string | number) => {
     const stringVal = String(value)
@@ -140,13 +173,17 @@ export default function ReviewPage() {
   }
 
   const handleGenerate = useCallback(() => {
+    if (mappingMissingCount > 0) {
+      alert(`${mappingMissingCount} required cells are empty (per Mapping.xlsx). Please fill them before generating PDFs.`)
+      return
+    }
     setGenerating(true)
-    const grouped: Record<string, typeof rows> = {}
-    for (const row of rows) { const t = row.type || "Unknown"; if (!grouped[t]) grouped[t] = []; grouped[t].push(row) }
+    const grouped: Record<string, typeof rowsWithMapping> = {}
+    for (const row of rowsWithMapping) { const t = row.type || "Unknown"; if (!grouped[t]) grouped[t] = []; grouped[t].push(row) }
     setGroupedSupports(grouped)
     setApprovalSubmitted(false)
     router.push("/output")
-  }, [rows, setGroupedSupports, setApprovalSubmitted, router])
+  }, [rowsWithMapping, mappingMissingCount, setGroupedSupports, setApprovalSubmitted, router])
 
   const buildExportData = () => {
     // Union of all item names × variant labels across all project types
@@ -222,6 +259,19 @@ export default function ReviewPage() {
       <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)", marginBottom: "var(--space-4)" }}>
         Total = sum of all length columns (auto). <span style={{ color: "var(--color-text-faint)" }}>Ctrl+Enter: generate | Ctrl+E: export | Ctrl+P: print</span>
       </p>
+
+      {/* Mapping validation banner */}
+      {mappingMissingCount > 0 && (
+        <div className="animate-fade-in-down" style={{
+          padding: "var(--space-3) var(--space-4)", marginBottom: "var(--space-4)",
+          background: "var(--color-error-soft)", borderLeft: "3px solid var(--color-error)",
+          borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)",
+          display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap",
+        }}>
+          <strong style={{ color: "var(--color-error)" }}>{mappingMissingCount} required cell{mappingMissingCount !== 1 ? "s" : ""}</strong>
+          are empty per the uploaded Mapping.xlsx. Fill the red-highlighted cells below before generating PDFs.
+        </div>
+      )}
 
       {/* Stats + Search */}
       <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-4)", flexWrap: "wrap", alignItems: "end" }}>

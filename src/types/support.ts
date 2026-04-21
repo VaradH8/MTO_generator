@@ -102,6 +102,14 @@ export interface ActivityEntry {
   detail: string
 }
 
+/** Per-type column-mapping rule: which input columns (length keys) must have values */
+export interface TypeMapping {
+  /** Required input length keys lowercased (e.g., ["a","b","c"]) — empty cells are flagged red */
+  required: string[]
+  /** Whether the mapping row contained explicit "MISSING" markers */
+  hasMissing: boolean
+}
+
 export interface Project {
   id: string
   clientName: string
@@ -111,6 +119,8 @@ export interface Project {
   supportTypes: SupportTypeConfig[]
   uploads: UploadRecord[]
   activityLog: ActivityEntry[]
+  /** Column-mapping rules keyed by type name, uploaded from Mapping.xlsx */
+  mapping?: Record<string, TypeMapping>
 }
 
 export interface PdfApproval {

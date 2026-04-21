@@ -14,7 +14,7 @@ export async function GET(
     const { id } = await params
 
     const { rows: projects } = await pool.query(
-      `SELECT id, client_name, created_by, created_at, support_range, is_active
+      `SELECT id, client_name, created_by, created_at, support_range, is_active, mapping
        FROM projects WHERE id = $1`,
       [id]
     )
@@ -91,6 +91,7 @@ export async function GET(
         action: a.action,
         detail: a.detail,
       })),
+      mapping: p.mapping && typeof p.mapping === "object" ? p.mapping : {},
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error"
@@ -106,7 +107,7 @@ export async function PUT(
   try {
     const { id } = await params
     const body = await req.json()
-    const { clientName, supportRange, supportTypes } = body
+    const { clientName, supportRange, supportTypes, mapping } = body
 
     // Check project exists
     const { rows: existing } = await pool.query(
@@ -118,7 +119,7 @@ export async function PUT(
     }
 
     // Update basic fields if provided
-    if (clientName !== undefined || supportRange !== undefined) {
+    if (clientName !== undefined || supportRange !== undefined || mapping !== undefined) {
       const setClauses: string[] = []
       const values: unknown[] = []
       let idx = 1
@@ -130,6 +131,10 @@ export async function PUT(
       if (supportRange !== undefined) {
         setClauses.push(`support_range = $${idx++}`)
         values.push(supportRange)
+      }
+      if (mapping !== undefined) {
+        setClauses.push(`mapping = $${idx++}::jsonb`)
+        values.push(JSON.stringify(mapping || {}))
       }
 
       values.push(id)

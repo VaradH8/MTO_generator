@@ -9,7 +9,7 @@ function generateId() {
 export async function GET(_req: NextRequest) {
   try {
     const { rows: projects } = await pool.query(
-      `SELECT id, client_name, created_by, created_at, support_range, is_active
+      `SELECT id, client_name, created_by, created_at, support_range, is_active, mapping
        FROM projects ORDER BY created_at DESC`
     )
 
@@ -81,6 +81,7 @@ export async function GET(_req: NextRequest) {
             action: a.action,
             detail: a.detail,
           })),
+          mapping: p.mapping && typeof p.mapping === "object" ? p.mapping : {},
         }
       })
     )

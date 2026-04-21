@@ -14,7 +14,7 @@ interface ProjectContextType {
   activeProject: Project | null
   setActiveProjectId: (id: string | null) => void
   createProject: (clientName: string, createdBy?: string, supportRange?: number) => Project
-  updateProject: (id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange">>) => void
+  updateProject: (id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange" | "mapping">>) => void
   deleteProject: (id: string) => void
   /** Returns { newSupports, revisions } after detecting duplicates */
   addUploadRecord: (projectId: string, record: Omit<UploadRecord, "id" | "uploadedAt" | "newSupports" | "revisions">) => { newSupports: number; revisions: number }
@@ -109,7 +109,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return project
   }, [])
 
-  const updateProject = useCallback((id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange">>) => {
+  const updateProject = useCallback((id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange" | "mapping">>) => {
     // Optimistic update
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
 

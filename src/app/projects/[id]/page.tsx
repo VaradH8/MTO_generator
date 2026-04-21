@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useProjects } from "@/context/ProjectContext"
 import { useSupportContext } from "@/context/SupportContext"
 import { generatePDF } from "@/lib/generatePDF"
 import { generateZip } from "@/lib/generateZip"
+import { parseMappingFile } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import EmptyState from "@/components/EmptyState"
@@ -13,7 +14,28 @@ import EmptyState from "@/components/EmptyState"
 export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const { projects } = useProjects()
+  const { projects, updateProject } = useProjects()
+  const mappingFileRef = useRef<HTMLInputElement>(null)
+  const [mappingUploadMsg, setMappingUploadMsg] = useState("")
+
+  const handleMappingUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file || !params.id) return
+    try {
+      const mapping = await parseMappingFile(file)
+      const count = Object.keys(mapping).length
+      if (count === 0) {
+        setMappingUploadMsg("No type mappings found in the file.")
+        return
+      }
+      updateProject(String(params.id), { mapping })
+      setMappingUploadMsg(`✓ Uploaded mapping for ${count} types.`)
+      setTimeout(() => setMappingUploadMsg(""), 4000)
+    } catch {
+      setMappingUploadMsg("Failed to parse mapping file.")
+    }
+  }
   const { groupedSupports, currentProjectId, currentProjectName, loaded } = useSupportContext()
 
   const project = projects.find((p) => p.id === params.id)
@@ -192,6 +214,12 @@ export default function ProjectDetailPage() {
           Run AutoCAD
         </ActionButton>
         <ActionButton variant="ghost" onClick={() => router.push("/projects")}>Configure Types</ActionButton>
+        <ActionButton variant="secondary" onClick={() => mappingFileRef.current?.click()}
+          iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v10H3V3zm2 2v2h6V5H5zm0 4v2h6V9H5z" fill="currentColor" /></svg>}
+        >
+          {project.mapping && Object.keys(project.mapping).length > 0 ? `Mapping (${Object.keys(project.mapping).length} types)` : "Upload Mapping"}
+        </ActionButton>
+        <input ref={mappingFileRef} type="file" accept=".xlsx,.xls" onChange={handleMappingUpload} style={{ display: "none" }} />
         <ActionButton variant="secondary" onClick={() => {
           const done = allKeys.size
           const range = project.supportRange || 0
@@ -237,6 +265,12 @@ export default function ProjectDetailPage() {
           iconLeft={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
         >Export Report</ActionButton>
       </div>
+
+      {mappingUploadMsg && (
+        <div className="animate-fade-in-down" style={{ padding: "var(--space-2) var(--space-4)", marginBottom: "var(--space-4)", background: mappingUploadMsg.startsWith("✓") ? "var(--color-success-soft)" : "var(--color-warning-soft)", borderLeft: `3px solid ${mappingUploadMsg.startsWith("✓") ? "var(--color-success)" : "var(--color-warning)"}`, borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text)" }}>
+          {mappingUploadMsg}
+        </div>
+      )}
 
       {/* Stats */}
       {(() => {
