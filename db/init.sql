@@ -139,8 +139,8 @@ CREATE TABLE IF NOT EXISTS support_rows (
   missing_fields   JSONB NOT NULL DEFAULT '[]'
 );
 
-CREATE INDEX idx_support_rows_project ON support_rows(project_id);
-CREATE INDEX idx_support_rows_type ON support_rows(type);
+CREATE INDEX IF NOT EXISTS idx_support_rows_project ON support_rows(project_id);
+CREATE INDEX IF NOT EXISTS idx_support_rows_type ON support_rows(type);
 
 -- ── PDF Approvals ───────────────────────────────────────────────────
 
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS pdf_approvals (
   reviewed_at    TIMESTAMPTZ
 );
 
-CREATE INDEX idx_approvals_status ON pdf_approvals(status);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON pdf_approvals(status);
 
 -- ── Billing ─────────────────────────────────────────────────────────
 
@@ -180,7 +180,14 @@ CREATE TABLE IF NOT EXISTS billing_cycles (
   amount_due      NUMERIC(10,2) NOT NULL DEFAULT 0
 );
 
--- Link entries to their cycle once billed
-ALTER TABLE billing_entries
-  ADD CONSTRAINT fk_billing_cycle
-  FOREIGN KEY (cycle_id) REFERENCES billing_cycles(id) ON DELETE SET NULL;
+-- Link entries to their cycle once billed (idempotent: only adds if missing)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_billing_cycle'
+  ) THEN
+    ALTER TABLE billing_entries
+      ADD CONSTRAINT fk_billing_cycle
+      FOREIGN KEY (cycle_id) REFERENCES billing_cycles(id) ON DELETE SET NULL;
+  END IF;
+END $$;
