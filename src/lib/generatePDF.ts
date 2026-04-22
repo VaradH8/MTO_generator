@@ -65,31 +65,32 @@ function maxLengthKey(rows: SupportRow[]): LengthKey {
   return LENGTH_KEYS[Math.max(maxIdx, 3)]
 }
 
-export async function generatePDF(
-  type: string,
-  rows: SupportRow[],
-  projectName?: string,
-  typeConfigs: SupportTypeConfig[] = [],
-): Promise<Blob> {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
+interface RenderSectionParams {
+  doc: jsPDF
+  fonts: { display: string; body: string }
+  type: string
+  rows: SupportRow[]
+  projectName?: string
+  typeConfigs: SupportTypeConfig[]
+  logoDataUrl?: string | null
+  /** Optional subtitle override (e.g. "Selected rows · 12 supports"). */
+  subtitleOverride?: string
+}
+
+function renderTypeSection(params: RenderSectionParams): void {
+  const { doc, fonts, type, rows, projectName, typeConfigs, logoDataUrl, subtitleOverride } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const mx = 14
 
-  const customLoaded = await registerFonts(doc)
-  const fonts = getFontNames(customLoaded)
-
-  // ── Determine dynamic columns ──
   const lastLength = maxLengthKey(rows)
   const lastLengthIdx = LENGTH_KEYS.indexOf(lastLength)
   const activeLengths = LENGTH_KEYS.slice(0, lastLengthIdx + 1)
 
-  // Scope item columns to the types actually present in these rows (PDF is per-type).
   const typesInRows = new Set(rows.map((r) => r.type.trim().toLowerCase()).filter(Boolean))
   const scopedConfigs = typeConfigs.filter((tc) => typesInRows.has(tc.typeName.trim().toLowerCase()))
   const itemCols = buildItemColumns(scopedConfigs.length > 0 ? scopedConfigs : typeConfigs)
 
-  // Group item columns by itemName to know which parent spans multiple variants.
   const itemGroups: { itemName: string; variantLabels: string[] }[] = []
   for (const ic of itemCols) {
     const existing = itemGroups.find((g) => g.itemName === ic.itemName)
@@ -97,7 +98,6 @@ export async function generatePDF(
     else itemGroups.push({ itemName: ic.itemName, variantLabels: [ic.variantLabel] })
   }
 
-  // ── Build nested header (two rows) ──
   const headStyles = {
     fillColor: PRIMARY,
     textColor: [255, 255, 255] as [number, number, number],
@@ -129,7 +129,6 @@ export async function generatePDF(
 
   headRow1.push({ content: "REMARKS", rowSpan: 2, styles: headStyles })
 
-  // ── Build body ──
   const body = rows.map((row) => {
     const cells: string[] = []
     for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
@@ -142,19 +141,16 @@ export async function generatePDF(
     return cells
   })
 
-  // ── Top accent bar ──
+  // Top accent bar
   doc.setFillColor(...PRIMARY)
   doc.rect(0, 0, pw, 3, "F")
 
-  // ── Logo ──
-  try {
-    const logoRes = await fetch("/logo.png")
-    const logoBuf = await logoRes.arrayBuffer()
-    const logoB64 = btoa(String.fromCharCode(...new Uint8Array(logoBuf)))
-    doc.addImage(`data:image/png;base64,${logoB64}`, "PNG", mx, 7, 12, 12)
-  } catch { /* no logo */ }
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, "PNG", mx, 7, 12, 12)
+    } catch { /* ignore */ }
+  }
 
-  // ── Title ──
   doc.setFont(fonts.display, "bold")
   doc.setFontSize(14)
   doc.setTextColor(...DARK)
@@ -163,10 +159,9 @@ export async function generatePDF(
   doc.setFont(fonts.body, "normal")
   doc.setFontSize(8)
   doc.setTextColor(...MUTED)
-  const subtitle = projectName ? `${projectName} | ` : ""
-  doc.text(`${subtitle}${rows.length} supports`, mx + 16, 18)
+  const subtitle = subtitleOverride ?? `${projectName ? `${projectName} | ` : ""}${rows.length} supports`
+  doc.text(subtitle, mx + 16, 18)
 
-  // ── Table ──
   autoTable(doc, {
     startY: 24,
     head: [headRow1, headRow2],
@@ -194,7 +189,7 @@ export async function generatePDF(
     margin: { left: mx, right: mx },
   })
 
-  // ── Bottom bar + footer ──
+  // Bottom bar + footer
   doc.setFillColor(...PRIMARY)
   doc.rect(0, ph - 3, pw, 3, "F")
 
@@ -203,6 +198,93 @@ export async function generatePDF(
   doc.setTextColor(...MUTED)
   doc.text("Support MTO Generator", mx, ph - 5)
   doc.text(`Generated ${new Date().toLocaleDateString("en-US")}`, pw - mx, ph - 5, { align: "right" })
+}
+
+async function loadLogoDataUrl(): Promise<string | null> {
+  try {
+    const logoRes = await fetch("/logo.png")
+    const logoBuf = await logoRes.arrayBuffer()
+    const logoB64 = btoa(String.fromCharCode(...new Uint8Array(logoBuf)))
+    return `data:image/png;base64,${logoB64}`
+  } catch {
+    return null
+  }
+}
+
+export async function generatePDF(
+  type: string,
+  rows: SupportRow[],
+  projectName?: string,
+  typeConfigs: SupportTypeConfig[] = [],
+): Promise<Blob> {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
+  const customLoaded = await registerFonts(doc)
+  const fonts = getFontNames(customLoaded)
+  const logoDataUrl = await loadLogoDataUrl()
+
+  renderTypeSection({ doc, fonts, type, rows, projectName, typeConfigs, logoDataUrl })
+
+  return doc.output("blob")
+}
+
+/**
+ * Combined PDF: every type's schedule rendered back-to-back into a single
+ * document, one type per page (or more if autoTable overflows).
+ */
+export async function generateCombinedPDF(
+  grouped: Record<string, SupportRow[]>,
+  projectName?: string,
+  typeConfigs: SupportTypeConfig[] = [],
+): Promise<Blob> {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
+  const customLoaded = await registerFonts(doc)
+  const fonts = getFontNames(customLoaded)
+  const logoDataUrl = await loadLogoDataUrl()
+
+  const entries = Object.entries(grouped).filter(([, rows]) => rows.length > 0)
+  entries.forEach(([type, rows], idx) => {
+    if (idx > 0) doc.addPage()
+    renderTypeSection({ doc, fonts, type, rows, projectName, typeConfigs, logoDataUrl })
+  })
+
+  return doc.output("blob")
+}
+
+/**
+ * Build a PDF for an explicit set of rows (e.g. user selection), grouped by
+ * their own type. Pages are added per type. Subtitle is tagged as a selection.
+ */
+export async function generateSelectionPDF(
+  rows: SupportRow[],
+  projectName?: string,
+  typeConfigs: SupportTypeConfig[] = [],
+): Promise<Blob> {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
+  const customLoaded = await registerFonts(doc)
+  const fonts = getFontNames(customLoaded)
+  const logoDataUrl = await loadLogoDataUrl()
+
+  const grouped: Record<string, SupportRow[]> = {}
+  for (const r of rows) {
+    const t = r.type || "Unknown"
+    if (!grouped[t]) grouped[t] = []
+    grouped[t].push(r)
+  }
+
+  const entries = Object.entries(grouped).filter(([, rs]) => rs.length > 0)
+  entries.forEach(([type, rs], idx) => {
+    if (idx > 0) doc.addPage()
+    renderTypeSection({
+      doc,
+      fonts,
+      type,
+      rows: rs,
+      projectName,
+      typeConfigs,
+      logoDataUrl,
+      subtitleOverride: `${projectName ? `${projectName} | ` : ""}Selected · ${rs.length} supports`,
+    })
+  })
 
   return doc.output("blob")
 }

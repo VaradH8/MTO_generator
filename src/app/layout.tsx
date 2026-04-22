@@ -3,6 +3,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/context/ThemeProvider"
 import { AuthProvider } from "@/context/AuthContext"
 import { SupportProvider } from "@/context/SupportContext"
+import { ProjectTableProvider } from "@/context/ProjectTableContext"
 import { BillingProvider } from "@/context/BillingContext"
 import { ProjectProvider } from "@/context/ProjectContext"
 import { SettingsProvider } from "@/context/SettingsContext"
@@ -31,7 +32,9 @@ export default function RootLayout({
               <BillingProvider>
               <ApprovalProvider>
               <SupportProvider>
+              <ProjectTableProvider>
                 <AppShell>{children}</AppShell>
+              </ProjectTableProvider>
               </SupportProvider>
               </ApprovalProvider>
               </BillingProvider>

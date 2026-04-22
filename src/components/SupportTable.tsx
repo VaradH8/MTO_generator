@@ -52,11 +52,14 @@ interface SupportTableProps {
   disabled?: boolean
   selectedRows?: Set<number>
   onRowSelect?: (rowIndex: number) => void
+  /** Fires with every row _rowIndex covered by the current cell-range
+   * selection (shift-click / click-drag). Empty set when selection clears. */
+  onCellSelectionChange?: (rowIndices: Set<number>) => void
 }
 
 // ── Main Component ──────────────────────────────────────────────────────
 
-export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRowsChange, disabled = false, selectedRows, onRowSelect }: SupportTableProps) {
+export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRowsChange, disabled = false, selectedRows, onRowSelect, onCellSelectionChange }: SupportTableProps) {
   const tableRef = useRef<HTMLDivElement>(null)
 
   // ─── Core state ─────────────────────────────────────────────────────
@@ -302,6 +305,22 @@ export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRow
     }
     return cells
   }, [selRange, colKeys, paginatedRows])
+
+  // Expose cell-range selection as a set of row indices for the parent to use
+  // (e.g. "Generate PDF of selected rows"). Iterates full sortedRows so that
+  // selections can span across pages.
+  useEffect(() => {
+    if (!onCellSelectionChange) return
+    if (!selRange) { onCellSelectionChange(new Set()); return }
+    const n = normalizeRange(selRange, colKeys)
+    const set = new Set<number>()
+    for (const row of sortedRows) {
+      if (row._rowIndex >= n.start.row && row._rowIndex <= n.end.row) {
+        set.add(row._rowIndex)
+      }
+    }
+    onCellSelectionChange(set)
+  }, [selRange, sortedRows, colKeys, onCellSelectionChange])
 
   // ── Copy / Paste ──────────────────────────────────────────────────────
 

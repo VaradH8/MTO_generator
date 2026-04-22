@@ -6,6 +6,7 @@ import SupportTable from "@/components/SupportTable"
 import ActionButton from "@/components/ActionButton"
 import EmptyState from "@/components/EmptyState"
 import { useSupportContext } from "@/context/SupportContext"
+import { useProjectTables } from "@/context/ProjectTableContext"
 import { useProjects } from "@/context/ProjectContext"
 import { LENGTH_KEYS } from "@/types/support"
 import type { LengthKey, SupportRow, SupportTypeConfig } from "@/types/support"
@@ -23,6 +24,7 @@ function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
 export default function ReviewPage() {
   const router = useRouter()
   const { validationResult, setValidationResult, setGroupedSupports, setApprovalSubmitted, currentProjectId } = useSupportContext()
+  const { saveProjectTable } = useProjectTables()
   const { getTypeConfigs, projects } = useProjects()
   const typeConfigs: SupportTypeConfig[] = currentProjectId ? getTypeConfigs(currentProjectId) : []
   const projectMapping = currentProjectId ? (projects.find((p) => p.id === currentProjectId)?.mapping || {}) : {}
@@ -32,6 +34,16 @@ export default function ReviewPage() {
   const [bulkType, setBulkType] = useState("")
 
   const REQUIRED_KEYS = ["tagNumber", "type"]
+
+  // Persist the initial parsed table under the current project so it
+  // reappears when the project is reopened.
+  useEffect(() => {
+    if (!currentProjectId) return
+    if (!validationResult || !validationResult.rows.length) return
+    saveProjectTable(currentProjectId, validationResult.rows)
+    // Only on mount / project change — subsequent edits save via updateValidation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProjectId])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -138,6 +150,7 @@ export default function ReviewPage() {
     const grouped: Record<string, typeof updatedRows> = {}
     for (const row of updatedRows) { const t = row.type || "Unknown"; if (!grouped[t]) grouped[t] = []; grouped[t].push(row) }
     setGroupedSupports(grouped)
+    if (currentProjectId) saveProjectTable(currentProjectId, updatedRows)
   }
 
   const handleRowsChange = (newRows: typeof rows) => {

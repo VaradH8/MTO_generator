@@ -1,20 +1,44 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useMemo, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useProjects } from "@/context/ProjectContext"
 import { useSupportContext } from "@/context/SupportContext"
-import { generatePDF } from "@/lib/generatePDF"
+import { useProjectTables } from "@/context/ProjectTableContext"
+import { generatePDF, generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
 import { generateZip } from "@/lib/generateZip"
 import { parseMappingFile } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import EmptyState from "@/components/EmptyState"
+import SupportTable from "@/components/SupportTable"
+import { LENGTH_KEYS } from "@/types/support"
+import type { SupportRow, LengthKey, GroupedSupports } from "@/types/support"
+
+function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
+  let sum = 0
+  for (const k of LENGTH_KEYS) {
+    const v = lengths[k]
+    if (v) sum += parseFloat(v) || 0
+  }
+  return sum % 1 === 0 ? String(sum) : sum.toFixed(2)
+}
+
+function groupByType(rows: SupportRow[]): GroupedSupports {
+  const grouped: GroupedSupports = {}
+  for (const r of rows) {
+    const t = r.type || "Unknown"
+    if (!grouped[t]) grouped[t] = []
+    grouped[t].push(r)
+  }
+  return grouped
+}
 
 export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const { projects, updateProject } = useProjects()
+  const { projects, updateProject, getTypeConfigs } = useProjects()
+  const { getProjectTable, saveProjectTable } = useProjectTables()
   const mappingFileRef = useRef<HTMLInputElement>(null)
   const [mappingUploadMsg, setMappingUploadMsg] = useState("")
 
@@ -36,16 +60,39 @@ export default function ProjectDetailPage() {
       setMappingUploadMsg("Failed to parse mapping file.")
     }
   }
-  const { groupedSupports, currentProjectId, currentProjectName, loaded } = useSupportContext()
+  const { currentProjectName } = useSupportContext()
 
   const project = projects.find((p) => p.id === params.id)
+  const projectId = String(params.id)
+  const projectName = project?.clientName || currentProjectName || ""
+  const typeConfigs = useMemo(() => (projectId ? getTypeConfigs(projectId) : []), [projectId, getTypeConfigs])
 
-  // PDFs are available if the persisted context belongs to this project
-  const hasPdfs = loaded && currentProjectId === params.id && !!groupedSupports && Object.keys(groupedSupports).length > 0
-  const pdfTypes = hasPdfs ? Object.entries(groupedSupports!) : []
+  // Persisted table snapshot for this project — survives navigation / reload.
+  const snapshot = getProjectTable(projectId)
+  const tableRows = snapshot?.rows ?? []
+  const groupedSupports = useMemo<GroupedSupports>(
+    () => (snapshot ? groupByType(snapshot.rows) : {}),
+    [snapshot],
+  )
+  const hasPdfs = tableRows.length > 0
+  const pdfTypes = hasPdfs ? Object.entries(groupedSupports) : []
 
   const [pdfStatus, setPdfStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
   const [zipping, setZipping] = useState(false)
+  const [combinedStatus, setCombinedStatus] = useState<"ready" | "downloading" | "error">("ready")
+  const [selectionStatus, setSelectionStatus] = useState<"ready" | "downloading" | "error">("ready")
+  const [showTable, setShowTable] = useState(true)
+
+  // Row selection comes from two independent sources that are unioned:
+  //   • checkboxes (`selectedRows`)
+  //   • cell-range via shift-click / click-drag (`cellSelectionRows`)
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
+  const [cellSelectionRows, setCellSelectionRows] = useState<Set<number>>(new Set())
+  const effectiveSelection = useMemo(() => {
+    const s = new Set<number>(selectedRows)
+    for (const r of cellSelectionRows) s.add(r)
+    return s
+  }, [selectedRows, cellSelectionRows])
 
   const triggerDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob)
@@ -59,11 +106,38 @@ export default function ProjectDetailPage() {
   const handleDownloadPDF = async (type: string) => {
     setPdfStatus((s) => ({ ...s, [type]: "downloading" }))
     try {
-      const blob = await generatePDF(type, groupedSupports![type], currentProjectName)
+      const blob = await generatePDF(type, groupedSupports[type] || [], projectName, typeConfigs)
       triggerDownload(blob, `${type}-supports.pdf`)
       setPdfStatus((s) => ({ ...s, [type]: "ready" }))
     } catch {
       setPdfStatus((s) => ({ ...s, [type]: "error" }))
+    }
+  }
+
+  const handleDownloadCombined = async () => {
+    if (!hasPdfs) return
+    setCombinedStatus("downloading")
+    try {
+      const blob = await generateCombinedPDF(groupedSupports, projectName, typeConfigs)
+      const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      triggerDownload(blob, `${base}_combined.pdf`)
+      setCombinedStatus("ready")
+    } catch {
+      setCombinedStatus("error")
+    }
+  }
+
+  const handleDownloadSelection = async () => {
+    if (effectiveSelection.size === 0) return
+    setSelectionStatus("downloading")
+    try {
+      const selRows = tableRows.filter((r) => effectiveSelection.has(r._rowIndex))
+      const blob = await generateSelectionPDF(selRows, projectName, typeConfigs)
+      const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      triggerDownload(blob, `${base}_selected_${selRows.length}.pdf`)
+      setSelectionStatus("ready")
+    } catch {
+      setSelectionStatus("error")
     }
   }
 
@@ -73,13 +147,57 @@ export default function ProjectDetailPage() {
       const pdfs = await Promise.all(
         pdfTypes.map(async ([type, rows]) => ({
           name: `${type}-supports`,
-          blob: await generatePDF(type, rows, currentProjectName),
+          blob: await generatePDF(type, rows, projectName, typeConfigs),
         }))
       )
       triggerDownload(await generateZip(pdfs), "support-pdfs.zip")
     } catch { /* silently */ }
     finally { setZipping(false) }
   }
+
+  // Editing the persisted table — localStorage only; DB upload records are
+  // untouched. Rebuilds totals and clears per-cell missing flags.
+  const handleCellEdit = useCallback((rowIndex: number, colKey: string, value: string | number) => {
+    if (!snapshot) return
+    const stringVal = String(value)
+    const updated = snapshot.rows.map((row) => {
+      if (row._rowIndex !== rowIndex) return row
+      const next: SupportRow = {
+        ...row,
+        lengths: { ...row.lengths },
+        itemQtys: { ...row.itemQtys },
+      }
+      if (colKey.startsWith("lengths.")) {
+        const sub = colKey.slice("lengths.".length) as LengthKey
+        next.lengths[sub] = stringVal
+        next.total = calcTotal(next.lengths)
+      } else if (colKey.startsWith("item:")) {
+        const rest = colKey.slice("item:".length)
+        const [itemName, variantLabel = ""] = rest.split("::")
+        const cur = { ...(next.itemQtys[itemName] || {}) }
+        cur[variantLabel] = stringVal
+        next.itemQtys[itemName] = cur
+      } else {
+        ;(next as unknown as Record<string, string>)[colKey] = stringVal
+      }
+      next._missingFields = next._missingFields.filter((f) => f !== colKey)
+      next._hasErrors = next._missingFields.some((f) => ["tagNumber", "type"].includes(f))
+      return next
+    })
+    saveProjectTable(projectId, updated)
+  }, [snapshot, projectId, saveProjectTable])
+
+  const handleRowsChange = useCallback((newRows: SupportRow[]) => {
+    saveProjectTable(projectId, newRows)
+  }, [projectId, saveProjectTable])
+
+  const toggleRowSelect = useCallback((idx: number) => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx); else next.add(idx)
+      return next
+    })
+  }, [])
 
   // AutoCAD Run popup state
   const [showRunPopup, setShowRunPopup] = useState(false)
@@ -365,11 +483,37 @@ export default function ProjectDetailPage() {
               <ActionButton variant="secondary" size="sm" loading={zipping} onClick={handleDownloadAll}>
                 {zipping ? "Preparing..." : "Download All as ZIP"}
               </ActionButton>
-              <ActionButton variant="ghost" size="sm" onClick={() => router.push("/output")}>
-                Open PDF Page
-              </ActionButton>
             </div>
           </div>
+
+          {/* Combined PDF — one document with every type back-to-back. */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: "var(--space-3)",
+            padding: "var(--space-4)", marginBottom: "var(--space-3)",
+            background: "var(--color-primary-soft)",
+            border: "1px solid var(--color-primary)",
+            borderRadius: "var(--radius-md)",
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
+                Combined PDF
+              </div>
+              <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one document
+              </div>
+            </div>
+            <StatusBadge variant="info">{tableRows.length} rows</StatusBadge>
+            <ActionButton
+              variant="primary"
+              size="sm"
+              loading={combinedStatus === "downloading"}
+              onClick={handleDownloadCombined}
+            >
+              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Download Combined"}
+            </ActionButton>
+          </div>
+
+          {/* Per-type PDFs */}
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
             {pdfTypes.map(([type, rows]) => (
               <div key={type} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-3) var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)" }}>
@@ -386,6 +530,71 @@ export default function ProjectDetailPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Data Table — persistent per-project. Edits save locally; DB uploads are untouched. */}
+      {hasPdfs && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-3)", flexWrap: "wrap", gap: "var(--space-3)" }}>
+            <div>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>Data Table</h2>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                Edit cells, regenerate PDFs, or click + shift-click to select rows.
+                {snapshot?.updatedAt && <> Last edited {new Date(snapshot.updatedAt).toLocaleString()}.</>}
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+              <ActionButton variant="ghost" size="sm" onClick={() => setShowTable((v) => !v)}>
+                {showTable ? "Hide Table" : "Show Table"}
+              </ActionButton>
+            </div>
+          </div>
+
+          {showTable && (
+            <>
+              {/* Selection bar — shown whenever any rows are selected via either method */}
+              {effectiveSelection.size > 0 && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: "var(--space-3)",
+                  padding: "var(--space-2) var(--space-3)", marginBottom: "var(--space-3)",
+                  background: "var(--color-primary-soft)",
+                  borderLeft: "3px solid var(--color-primary)",
+                  borderRadius: "var(--radius-sm)",
+                  flexWrap: "wrap",
+                }}>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-primary)" }}>
+                    {effectiveSelection.size} row{effectiveSelection.size !== 1 ? "s" : ""} selected
+                  </span>
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
+                    Tip: click a cell then shift-click another cell in the same column to select everything between.
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <ActionButton
+                    variant="primary"
+                    size="sm"
+                    loading={selectionStatus === "downloading"}
+                    onClick={handleDownloadSelection}
+                  >
+                    {selectionStatus === "downloading" ? "Generating..." : selectionStatus === "error" ? "Retry" : "Generate PDF from Selection"}
+                  </ActionButton>
+                  <ActionButton variant="ghost" size="sm" onClick={() => { setSelectedRows(new Set()); setCellSelectionRows(new Set()) }}>
+                    Clear
+                  </ActionButton>
+                </div>
+              )}
+
+              <SupportTable
+                rows={tableRows}
+                typeConfigs={typeConfigs}
+                onCellEdit={handleCellEdit}
+                onRowsChange={handleRowsChange}
+                selectedRows={selectedRows}
+                onRowSelect={toggleRowSelect}
+                onCellSelectionChange={setCellSelectionRows}
+              />
+            </>
+          )}
         </div>
       )}
 
