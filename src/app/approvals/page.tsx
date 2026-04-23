@@ -18,6 +18,15 @@ export default function ApprovalsPage() {
   const { addActivity } = useProjects()
   const [notification, setNotification] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set())
+
+  const toggleTypes = (id: string) => {
+    setExpandedTypes((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  // Inline pill count — anything beyond this collapses behind a "+N more" chip
+  // so a pathological upload (e.g. 30+ distinct types) doesn't blow out the row.
+  const MAX_INLINE_TYPES = 5
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -123,28 +132,54 @@ export default function ApprovalsPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
             {pending.map((a) => {
               const date = new Date(a.generatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
+              const typeEntries = Object.entries(a.types)
+              const isExpanded = expandedTypes.has(a.id)
+              const overflow = typeEntries.length > MAX_INLINE_TYPES
+              const visibleTypes = overflow && !isExpanded
+                ? typeEntries.slice(0, MAX_INLINE_TYPES)
+                : typeEntries
+              const hiddenCount = overflow && !isExpanded ? typeEntries.length - MAX_INLINE_TYPES : 0
+
               return (
                 <div key={a.id} className="animate-fade-in-up" style={{
                   padding: "var(--space-4)", background: "var(--color-warning-soft)",
                   borderRadius: "var(--radius-md)", borderLeft: "3px solid var(--color-warning)",
-                  display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap",
+                  display: "flex", alignItems: "flex-start", gap: "var(--space-3)", flexWrap: "wrap",
                 }}>
-                  <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggleSelect(a.id)} style={{ accentColor: "var(--color-primary)" }} />
-                  <div style={{ flex: 1, minWidth: 200 }}>
+                  <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggleSelect(a.id)} style={{ accentColor: "var(--color-primary)", marginTop: 4 }} />
+                  <div style={{ flex: "1 1 240px", minWidth: 200 }}>
                     <div style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)" }}>
                       {a.projectName || "Unknown Project"}
                     </div>
                     <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
                       by {a.generatedBy} — {date}
                     </div>
+                    <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap", marginTop: "var(--space-2)" }}>
+                      <StatusBadge variant="info">{a.supportCount} supports</StatusBadge>
+                      <StatusBadge variant="info">{typeEntries.length} type{typeEntries.length !== 1 ? "s" : ""}</StatusBadge>
+                    </div>
+                    {typeEntries.length > 0 && (
+                      <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap", marginTop: "var(--space-2)", maxHeight: isExpanded ? 160 : undefined, overflowY: isExpanded ? "auto" : undefined }}>
+                        {visibleTypes.map(([t, c]) => (
+                          <StatusBadge key={t} variant="info">{t}: {c}</StatusBadge>
+                        ))}
+                        {overflow && (
+                          <button
+                            onClick={() => toggleTypes(a.id)}
+                            style={{
+                              fontFamily: "var(--font-display)", fontSize: "0.6875rem", fontWeight: 600,
+                              color: "var(--color-primary)", background: "var(--color-primary-soft)",
+                              border: "1px solid var(--color-primary)", borderRadius: "var(--radius-sm)",
+                              padding: "2px 8px", cursor: "pointer",
+                            }}
+                          >
+                            {isExpanded ? "Show less" : `+${hiddenCount} more`}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <StatusBadge variant="info">{a.supportCount} supports</StatusBadge>
-                  <div style={{ display: "flex", gap: "var(--space-1)" }}>
-                    {Object.entries(a.types).map(([t, c]) => (
-                      <StatusBadge key={t} variant="info">{t}: {c}</StatusBadge>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                  <div style={{ display: "flex", gap: "var(--space-2)", alignSelf: "center" }}>
                     <ActionButton variant="primary" size="sm" onClick={() => handleApprove(a.id)}>
                       Approve
                     </ActionButton>

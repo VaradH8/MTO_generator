@@ -62,8 +62,10 @@ CREATE TABLE IF NOT EXISTS projects (
   created_by     VARCHAR(100) NOT NULL DEFAULT 'unknown',
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   support_range  INTEGER NOT NULL DEFAULT 0,
-  is_active      BOOLEAN NOT NULL DEFAULT FALSE
+  is_active      BOOLEAN NOT NULL DEFAULT FALSE,
+  table_rows     JSONB NOT NULL DEFAULT '[]'::jsonb
 );
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS table_rows JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- ── Project Support Types ───────────────────────────────────────────
 

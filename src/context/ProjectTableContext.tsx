@@ -1,9 +1,10 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react"
 import type { SupportRow, GroupedSupports } from "@/types/support"
 
 const STORAGE_KEY = "spg_project_tables"
+const SAVE_DEBOUNCE_MS = 500
 
 export interface ProjectTableSnapshot {
   rows: SupportRow[]
@@ -40,22 +41,43 @@ function readFromStorage(): Record<string, ProjectTableSnapshot> {
 }
 
 export function ProjectTableProvider({ children }: { children: ReactNode }) {
-  // Lazy init — reads localStorage once on first render (client) so we never
-  // trigger a cascading render from setState-in-effect.
+  // Seed from localStorage for instant UI, then merge in server-side snapshots
+  // once they arrive. Server is the source of truth going forward.
   const [tables, setTables] = useState<Record<string, ProjectTableSnapshot>>(readFromStorage)
-  const [loaded, setLoaded] = useState(typeof window !== "undefined")
+  const [loaded, setLoaded] = useState(false)
+  const pendingSaves = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
+  // Hydrate from server on mount.
   useEffect(() => {
-    if (!loaded) setLoaded(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false
+    fetch("/api/projects/tables")
+      .then((res) => res.ok ? res.json() : {})
+      .then((data: Record<string, SupportRow[]>) => {
+        if (cancelled || !data || typeof data !== "object") return
+        setTables((prev) => {
+          const next = { ...prev }
+          for (const [pid, rows] of Object.entries(data)) {
+            if (!Array.isArray(rows) || rows.length === 0) continue
+            next[pid] = {
+              rows,
+              groupedSupports: groupByType(rows),
+              updatedAt: new Date().toISOString(),
+            }
+          }
+          return next
+        })
+      })
+      .catch(() => { /* offline → fall back to localStorage */ })
+      .finally(() => { if (!cancelled) setLoaded(true) })
+    return () => { cancelled = true }
   }, [])
 
+  // Mirror to localStorage for fast reloads.
   useEffect(() => {
-    if (!loaded) return
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tables))
     } catch { /* quota — skip */ }
-  }, [tables, loaded])
+  }, [tables])
 
   const saveProjectTable = useCallback((projectId: string, rows: SupportRow[]) => {
     if (!projectId) return
@@ -67,6 +89,20 @@ export function ProjectTableProvider({ children }: { children: ReactNode }) {
         updatedAt: new Date().toISOString(),
       },
     }))
+
+    // Debounce server writes — a fast typing session on the table shouldn't
+    // fire one PUT per keystroke.
+    const existing = pendingSaves.current.get(projectId)
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      pendingSaves.current.delete(projectId)
+      fetch(`/api/projects/${projectId}/table`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      }).catch((err) => console.error("Failed to save project table:", err))
+    }, SAVE_DEBOUNCE_MS)
+    pendingSaves.current.set(projectId, timer)
   }, [])
 
   const getProjectTable = useCallback(
@@ -80,6 +116,11 @@ export function ProjectTableProvider({ children }: { children: ReactNode }) {
       delete n[projectId]
       return n
     })
+    fetch(`/api/projects/${projectId}/table`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows: [] }),
+    }).catch(() => { /* best effort */ })
   }, [])
 
   return (

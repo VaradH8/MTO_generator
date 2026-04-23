@@ -5,8 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { useProjects } from "@/context/ProjectContext"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjectTables } from "@/context/ProjectTableContext"
-import { generatePDF, generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
-import { generateZip } from "@/lib/generateZip"
+import { generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
 import { parseMappingFile } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
@@ -77,8 +76,6 @@ export default function ProjectDetailPage() {
   const hasPdfs = tableRows.length > 0
   const pdfTypes = hasPdfs ? Object.entries(groupedSupports) : []
 
-  const [pdfStatus, setPdfStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
-  const [zipping, setZipping] = useState(false)
   const [combinedStatus, setCombinedStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [selectionStatus, setSelectionStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [showTable, setShowTable] = useState(true)
@@ -101,17 +98,6 @@ export default function ProjectDetailPage() {
     a.download = filename
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  const handleDownloadPDF = async (type: string) => {
-    setPdfStatus((s) => ({ ...s, [type]: "downloading" }))
-    try {
-      const blob = await generatePDF(type, groupedSupports[type] || [], projectName, typeConfigs)
-      triggerDownload(blob, `${type}-supports.pdf`)
-      setPdfStatus((s) => ({ ...s, [type]: "ready" }))
-    } catch {
-      setPdfStatus((s) => ({ ...s, [type]: "error" }))
-    }
   }
 
   const handleDownloadCombined = async () => {
@@ -141,22 +127,8 @@ export default function ProjectDetailPage() {
     }
   }
 
-  const handleDownloadAll = async () => {
-    setZipping(true)
-    try {
-      const pdfs = await Promise.all(
-        pdfTypes.map(async ([type, rows]) => ({
-          name: `${type}-supports`,
-          blob: await generatePDF(type, rows, projectName, typeConfigs),
-        }))
-      )
-      triggerDownload(await generateZip(pdfs), "support-pdfs.zip")
-    } catch { /* silently */ }
-    finally { setZipping(false) }
-  }
-
-  // Editing the persisted table — localStorage only; DB upload records are
-  // untouched. Rebuilds totals and clears per-cell missing flags.
+  // Editing the persisted table — saved through ProjectTableContext (server
+  // + localStorage cache). DB upload records are untouched.
   const handleCellEdit = useCallback((rowIndex: number, colKey: string, value: string | number) => {
     if (!snapshot) return
     const stringVal = String(value)
@@ -474,32 +446,28 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Generated PDFs */}
+      {/* Generated PDFs — one combined document over every support. */}
       {hasPdfs && (
         <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)", flexWrap: "wrap", gap: "var(--space-3)" }}>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>Generated PDFs</h2>
-            <div style={{ display: "flex", gap: "var(--space-2)" }}>
-              <ActionButton variant="secondary" size="sm" loading={zipping} onClick={handleDownloadAll}>
-                {zipping ? "Preparing..." : "Download All as ZIP"}
-              </ActionButton>
-            </div>
-          </div>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Generated PDF
+          </h2>
 
-          {/* Combined PDF — one document with every type back-to-back. */}
           <div style={{
             display: "flex", alignItems: "center", gap: "var(--space-3)",
-            padding: "var(--space-4)", marginBottom: "var(--space-3)",
+            padding: "var(--space-4)",
             background: "var(--color-primary-soft)",
             border: "1px solid var(--color-primary)",
             borderRadius: "var(--radius-md)",
+            flexWrap: "wrap",
           }}>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
                 Combined PDF
               </div>
               <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
-                All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one document
+                All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one continuous table
+                {snapshot?.updatedAt && <> · Last updated {new Date(snapshot.updatedAt).toLocaleString()}</>}
               </div>
             </div>
             <StatusBadge variant="info">{tableRows.length} rows</StatusBadge>
@@ -509,26 +477,8 @@ export default function ProjectDetailPage() {
               loading={combinedStatus === "downloading"}
               onClick={handleDownloadCombined}
             >
-              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Download Combined"}
+              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Download Combined PDF"}
             </ActionButton>
-          </div>
-
-          {/* Per-type PDFs */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-            {pdfTypes.map(([type, rows]) => (
-              <div key={type} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-3) var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)" }}>
-                <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)", flex: 1 }}>{type}</span>
-                <StatusBadge variant="info">{rows.length} supports</StatusBadge>
-                <ActionButton
-                  variant="primary"
-                  size="sm"
-                  loading={pdfStatus[type] === "downloading"}
-                  onClick={() => handleDownloadPDF(type)}
-                >
-                  {pdfStatus[type] === "downloading" ? "Generating..." : pdfStatus[type] === "error" ? "Retry" : "Download PDF"}
-                </ActionButton>
-              </div>
-            ))}
           </div>
         </div>
       )}
