@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useRef, useMemo, useCallback } from "react"
+import { useState, useRef, useMemo, useCallback, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useProjects } from "@/context/ProjectContext"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjectTables } from "@/context/ProjectTableContext"
+import { useAuth } from "@/context/AuthContext"
 import { generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
 import { parseMappingFile } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
@@ -12,7 +13,16 @@ import StatusBadge from "@/components/StatusBadge"
 import EmptyState from "@/components/EmptyState"
 import SupportTable from "@/components/SupportTable"
 import { LENGTH_KEYS } from "@/types/support"
-import type { SupportRow, LengthKey, GroupedSupports } from "@/types/support"
+import type { SupportRow, LengthKey, GroupedSupports, SupportTypeConfig } from "@/types/support"
+
+interface PdfVersion {
+  id: string
+  generatedAt: string
+  generatedBy: string
+  label: string
+  rowCount: number
+  typeCount: number
+}
 
 function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
   let sum = 0
@@ -38,6 +48,7 @@ export default function ProjectDetailPage() {
   const router = useRouter()
   const { projects, updateProject, getTypeConfigs } = useProjects()
   const { getProjectTable, saveProjectTable } = useProjectTables()
+  const { user } = useAuth()
   const mappingFileRef = useRef<HTMLInputElement>(null)
   const [mappingUploadMsg, setMappingUploadMsg] = useState("")
 
@@ -80,6 +91,23 @@ export default function ProjectDetailPage() {
   const [selectionStatus, setSelectionStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [showTable, setShowTable] = useState(true)
 
+  // History of every Combined PDF generation, newest first. Fetched from the
+  // server so it survives reloads and shows up for every user.
+  const [pdfVersions, setPdfVersions] = useState<PdfVersion[]>([])
+  const [versionDownloading, setVersionDownloading] = useState<string | null>(null)
+
+  const refreshVersions = useCallback(async () => {
+    if (!projectId) return
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pdf-versions`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data?.versions)) setPdfVersions(data.versions)
+    } catch { /* offline — leave list as-is */ }
+  }, [projectId])
+
+  useEffect(() => { refreshVersions() }, [refreshVersions])
+
   // Row selection comes from two independent sources that are unioned:
   //   • checkboxes (`selectedRows`)
   //   • cell-range via shift-click / click-drag (`cellSelectionRows`)
@@ -107,10 +135,51 @@ export default function ProjectDetailPage() {
       const blob = await generateCombinedPDF(groupedSupports, projectName, typeConfigs)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_combined.pdf`)
+
+      // Record this generation as a new version so it shows up in history.
+      // Fire-and-forget: the download already succeeded — don't block on write.
+      fetch(`/api/projects/${projectId}/pdf-versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows: tableRows,
+          typeConfigs,
+          generatedBy: user?.username || "unknown",
+        }),
+      })
+        .then((res) => res.ok ? refreshVersions() : null)
+        .catch(() => { /* best-effort */ })
+
       setCombinedStatus("ready")
     } catch {
       setCombinedStatus("error")
     }
+  }
+
+  const handleDownloadVersion = async (version: PdfVersion) => {
+    setVersionDownloading(version.id)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pdf-versions/${version.id}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const rows: SupportRow[] = Array.isArray(data.rows) ? data.rows : []
+      const cfg: SupportTypeConfig[] = Array.isArray(data.typeConfigs) ? data.typeConfigs : typeConfigs
+      const blob = await generateCombinedPDF(groupByType(rows), projectName, cfg)
+      const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      const ts = new Date(version.generatedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19)
+      triggerDownload(blob, `${base}_combined_${ts}.pdf`)
+    } catch (err) {
+      console.error("Failed to regenerate version:", err)
+    } finally {
+      setVersionDownloading(null)
+    }
+  }
+
+  const handleDeleteVersion = async (versionId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pdf-versions/${versionId}`, { method: "DELETE" })
+      if (res.ok) setPdfVersions((prev) => prev.filter((v) => v.id !== versionId))
+    } catch { /* ignore */ }
   }
 
   const handleDownloadSelection = async () => {
@@ -363,37 +432,94 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Generated PDF — pinned at the top so it is visible on every reopen. */}
-      {hasPdfs && (
+      {(hasPdfs || pdfVersions.length > 0) && (
         <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
-            Generated PDF
-          </h2>
-          <div style={{
-            display: "flex", alignItems: "center", gap: "var(--space-3)",
-            padding: "var(--space-4)",
-            background: "var(--color-primary-soft)",
-            border: "1px solid var(--color-primary)",
-            borderRadius: "var(--radius-md)",
-            flexWrap: "wrap",
-          }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
-                Combined PDF
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)", flexWrap: "wrap", gap: "var(--space-3)" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>
+              Generated PDFs
+            </h2>
+            {pdfVersions.length > 0 && (
+              <StatusBadge variant="info">{pdfVersions.length} version{pdfVersions.length !== 1 ? "s" : ""}</StatusBadge>
+            )}
+          </div>
+
+          {/* Action row — generates a new version from the current table. */}
+          {hasPdfs && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: "var(--space-3)",
+              padding: "var(--space-4)",
+              background: "var(--color-primary-soft)",
+              border: "1px solid var(--color-primary)",
+              borderRadius: "var(--radius-md)",
+              marginBottom: "var(--space-4)",
+              flexWrap: "wrap",
+            }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
+                  Generate New Combined PDF
+                </div>
+                <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                  All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one continuous table
+                  {snapshot?.updatedAt && <> · Table last updated {new Date(snapshot.updatedAt).toLocaleString()}</>}
+                </div>
               </div>
-              <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
-                All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one continuous table
-                {snapshot?.updatedAt && <> · Last updated {new Date(snapshot.updatedAt).toLocaleString()}</>}
-              </div>
+              <StatusBadge variant="info">{tableRows.length} rows</StatusBadge>
+              <ActionButton
+                variant="primary"
+                size="sm"
+                loading={combinedStatus === "downloading"}
+                onClick={handleDownloadCombined}
+              >
+                {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Generate & Download"}
+              </ActionButton>
             </div>
-            <StatusBadge variant="info">{tableRows.length} rows</StatusBadge>
-            <ActionButton
-              variant="primary"
-              size="sm"
-              loading={combinedStatus === "downloading"}
-              onClick={handleDownloadCombined}
-            >
-              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Download Combined PDF"}
-            </ActionButton>
+          )}
+
+          {/* History — every Combined PDF ever generated for this project. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+              History
+            </div>
+            {pdfVersions.length === 0 ? (
+              <div style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-faint)", padding: "var(--space-3) 0" }}>
+                No combined PDFs generated yet. Click <strong>Generate & Download</strong> to create the first version.
+              </div>
+            ) : (
+              pdfVersions.map((v, idx) => (
+                <div key={v.id} style={{
+                  display: "flex", alignItems: "center", gap: "var(--space-3)",
+                  padding: "var(--space-3) var(--space-4)",
+                  background: "var(--color-surface-2)",
+                  borderRadius: "var(--radius-md)",
+                  flexWrap: "wrap",
+                }}>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 700, color: "var(--color-text-muted)", minWidth: 28 }}>
+                    #{pdfVersions.length - idx}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)" }}>
+                      {new Date(v.generatedAt).toLocaleString()}
+                    </div>
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                      by {v.generatedBy} · {v.rowCount} supports · {v.typeCount} type{v.typeCount !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                  <ActionButton
+                    variant="secondary"
+                    size="sm"
+                    loading={versionDownloading === v.id}
+                    onClick={() => handleDownloadVersion(v)}
+                  >
+                    {versionDownloading === v.id ? "Preparing..." : "Download"}
+                  </ActionButton>
+                  {user?.role === "admin" && (
+                    <ActionButton variant="ghost" size="sm" onClick={() => handleDeleteVersion(v.id)}>
+                      Delete
+                    </ActionButton>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}

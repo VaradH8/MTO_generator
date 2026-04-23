@@ -24,6 +24,18 @@ async function runMigrations(): Promise<void> {
     `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS classification VARCHAR(20) NOT NULL DEFAULT 'internal' CHECK (classification IN ('internal','external'))`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS table_rows JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `CREATE TABLE IF NOT EXISTS project_pdf_versions (
+       id               VARCHAR(50) PRIMARY KEY,
+       project_id       VARCHAR(50) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+       generated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       generated_by     VARCHAR(100) NOT NULL DEFAULT 'unknown',
+       label            VARCHAR(255) NOT NULL DEFAULT '',
+       row_count        INTEGER NOT NULL DEFAULT 0,
+       type_count       INTEGER NOT NULL DEFAULT 0,
+       rows_snapshot    JSONB NOT NULL DEFAULT '[]'::jsonb,
+       type_configs     JSONB NOT NULL DEFAULT '[]'::jsonb
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_pdf_versions_project ON project_pdf_versions(project_id, generated_at DESC)`,
   ]
   for (const sql of statements) {
     try {

@@ -67,6 +67,21 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS table_rows JSONB NOT NULL DEFAULT '[]'::jsonb;
 
+-- ── Project PDF Versions (history of every Combined PDF generation) ─
+
+CREATE TABLE IF NOT EXISTS project_pdf_versions (
+  id            VARCHAR(50) PRIMARY KEY,
+  project_id    VARCHAR(50) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  generated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  generated_by  VARCHAR(100) NOT NULL DEFAULT 'unknown',
+  label         VARCHAR(255) NOT NULL DEFAULT '',
+  row_count     INTEGER NOT NULL DEFAULT 0,
+  type_count    INTEGER NOT NULL DEFAULT 0,
+  rows_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+  type_configs  JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_pdf_versions_project ON project_pdf_versions(project_id, generated_at DESC);
+
 -- ── Project Support Types ───────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS project_support_types (
