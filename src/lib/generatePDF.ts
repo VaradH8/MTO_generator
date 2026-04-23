@@ -89,8 +89,17 @@ function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
 
 /** Pull a value from row.itemQtys honoring case-insensitive variant match —
  *  so a row stored under "Z" still lands in the column labeled "z" (or vice
- *  versa) instead of looking empty in the PDF. */
-function readItemValue(row: SupportRow, itemName: string, variantLabel: string): string {
+ *  versa) instead of looking empty in the PDF.
+ *
+ *  `isPrimary` means this is the first variant column for the item in the
+ *  PDF (e.g. "Z" under L ANGLE when the variants are [Z, S]). Rows uploaded
+ *  under a type whose L ANGLE config has no variants end up with a single
+ *  value stored under the empty string key ({ "": "2" }). To keep those
+ *  values visible we let them render in the primary variant column so a
+ *  Z-only support shows "2" under Z and blank under S — not blank under
+ *  both. Secondary variant columns never consume the empty-key value,
+ *  otherwise the same number would duplicate across every sub-column. */
+function readItemValue(row: SupportRow, itemName: string, variantLabel: string, isPrimary = false): string {
   const map = row.itemQtys?.[itemName]
   if (!map) return ""
   const direct = map[variantLabel]
@@ -98,6 +107,10 @@ function readItemValue(row: SupportRow, itemName: string, variantLabel: string):
   const target = normVariant(variantLabel)
   for (const [k, v] of Object.entries(map)) {
     if (normVariant(k) === target && v !== undefined && v !== "") return v
+  }
+  if (isPrimary) {
+    const emptyVal = map[""]
+    if (emptyVal !== undefined && emptyVal !== "") return emptyVal
   }
   return ""
 }
@@ -182,13 +195,27 @@ function renderTypeSection(params: RenderSectionParams): void {
 
   headRow1.push({ content: "REMARKS", rowSpan: 2, styles: headStyles })
 
+  // First variant column seen for each item — used to let rows whose
+  // itemQtys store a value under "" (no-variant config) render it under
+  // the leading variant column (e.g. Z for L ANGLE) instead of vanishing.
+  const primaryCol = new Set<string>()
+  {
+    const seenItems = new Set<string>()
+    for (const ic of itemCols) {
+      if (seenItems.has(ic.itemName)) continue
+      seenItems.add(ic.itemName)
+      primaryCol.add(`${ic.itemName}::${ic.variantLabel}`)
+    }
+  }
+
   const body = rows.map((row) => {
     const cells: string[] = []
     for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(String(row.total ?? ""))
     for (const ic of itemCols) {
-      cells.push(readItemValue(row, ic.itemName, ic.variantLabel))
+      const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
+      cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
     }
     cells.push(String(row.remarks ?? ""))
     return cells
@@ -321,13 +348,26 @@ function renderFlatTable(params: RenderFlatParams): void {
 
   headRow1.push({ content: "REMARKS", rowSpan: 2, styles: headStyles })
 
+  // See renderTypeSection — same primary-variant promotion so rows that
+  // only have a "" entry under the item still land in the first column.
+  const primaryCol = new Set<string>()
+  {
+    const seenItems = new Set<string>()
+    for (const ic of itemCols) {
+      if (seenItems.has(ic.itemName)) continue
+      seenItems.add(ic.itemName)
+      primaryCol.add(`${ic.itemName}::${ic.variantLabel}`)
+    }
+  }
+
   const body = rows.map((row) => {
     const cells: string[] = []
     for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(String(row.total ?? ""))
     for (const ic of itemCols) {
-      cells.push(readItemValue(row, ic.itemName, ic.variantLabel))
+      const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
+      cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
     }
     cells.push(String(row.remarks ?? ""))
     return cells
