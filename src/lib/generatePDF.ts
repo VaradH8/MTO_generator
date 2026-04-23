@@ -25,28 +25,81 @@ interface ItemColumn {
   variantLabel: string
 }
 
-/** Union across all configured types, preserving first-seen ordering. */
+/** Variant dedupe key — trims whitespace + lowercases so "Z", " Z " and "z"
+ *  collapse into one column instead of creating parallel ones. */
+function normVariant(label: string): string {
+  return label.trim().toLowerCase()
+}
+
+/**
+ * Union across all configured types, preserving first-seen ordering.
+ *
+ * Two correctness rules that stop stray columns from showing up in the PDF:
+ *  1. Variants dedupe case-insensitively so "Z" and "z" from two type configs
+ *     don't become two side-by-side columns.
+ *  2. If an item has any named variant in any type config, its empty-label
+ *     ("no variants") entry from other configs is dropped. Without this,
+ *     defining L ANGLE with variants Z,S in one type and without variants
+ *     in another type produces a blank column sitting before Z and S.
+ */
 function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
-  const cols: ItemColumn[] = []
-  const seen = new Set<string>()
+  // Pass 1 — collect, per itemName, the ordered list of normalized variant
+  // keys and their first-seen display label.
+  type Entry = { order: string[]; display: Map<string, string> }
+  const byItem = new Map<string, Entry>()
+  const itemOrder: string[] = []
+
+  const note = (itemName: string, label: string) => {
+    const norm = normVariant(label)
+    let entry = byItem.get(itemName)
+    if (!entry) {
+      entry = { order: [], display: new Map() }
+      byItem.set(itemName, entry)
+      itemOrder.push(itemName)
+    }
+    if (!entry.display.has(norm)) {
+      entry.display.set(norm, label)
+      entry.order.push(norm)
+    }
+  }
+
   for (const tc of typeConfigs) {
     for (const item of tc.items) {
       if (item.variants && item.variants.length > 0) {
-        for (const v of item.variants) {
-          const k = `${item.itemName}::${v.label}`
-          if (seen.has(k)) continue
-          seen.add(k)
-          cols.push({ itemName: item.itemName, variantLabel: v.label })
-        }
+        for (const v of item.variants) note(item.itemName, v.label)
       } else {
-        const k = `${item.itemName}::`
-        if (seen.has(k)) continue
-        seen.add(k)
-        cols.push({ itemName: item.itemName, variantLabel: "" })
+        note(item.itemName, "")
       }
     }
   }
+
+  // Pass 2 — emit columns, skipping the empty-label variant for any item
+  // that also has at least one named variant.
+  const cols: ItemColumn[] = []
+  for (const itemName of itemOrder) {
+    const entry = byItem.get(itemName)!
+    const hasNamed = entry.order.some((n) => n !== "")
+    for (const norm of entry.order) {
+      if (hasNamed && norm === "") continue
+      cols.push({ itemName, variantLabel: entry.display.get(norm)! })
+    }
+  }
   return cols
+}
+
+/** Pull a value from row.itemQtys honoring case-insensitive variant match —
+ *  so a row stored under "Z" still lands in the column labeled "z" (or vice
+ *  versa) instead of looking empty in the PDF. */
+function readItemValue(row: SupportRow, itemName: string, variantLabel: string): string {
+  const map = row.itemQtys?.[itemName]
+  if (!map) return ""
+  const direct = map[variantLabel]
+  if (direct !== undefined && direct !== "") return direct
+  const target = normVariant(variantLabel)
+  for (const [k, v] of Object.entries(map)) {
+    if (normVariant(k) === target && v !== undefined && v !== "") return v
+  }
+  return ""
 }
 
 /** Highest length letter (a..p) that has any non-empty value across the given rows. */
@@ -135,7 +188,7 @@ function renderTypeSection(params: RenderSectionParams): void {
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(String(row.total ?? ""))
     for (const ic of itemCols) {
-      cells.push(String(row.itemQtys?.[ic.itemName]?.[ic.variantLabel] ?? ""))
+      cells.push(readItemValue(row, ic.itemName, ic.variantLabel))
     }
     cells.push(String(row.remarks ?? ""))
     return cells
@@ -274,7 +327,7 @@ function renderFlatTable(params: RenderFlatParams): void {
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(String(row.total ?? ""))
     for (const ic of itemCols) {
-      cells.push(String(row.itemQtys?.[ic.itemName]?.[ic.variantLabel] ?? ""))
+      cells.push(readItemValue(row, ic.itemName, ic.variantLabel))
     }
     cells.push(String(row.remarks ?? ""))
     return cells
