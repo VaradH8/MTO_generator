@@ -362,6 +362,42 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
+      {/* Generated PDF — pinned at the top so it is visible on every reopen. */}
+      {hasPdfs && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Generated PDF
+          </h2>
+          <div style={{
+            display: "flex", alignItems: "center", gap: "var(--space-3)",
+            padding: "var(--space-4)",
+            background: "var(--color-primary-soft)",
+            border: "1px solid var(--color-primary)",
+            borderRadius: "var(--radius-md)",
+            flexWrap: "wrap",
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
+                Combined PDF
+              </div>
+              <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one continuous table
+                {snapshot?.updatedAt && <> · Last updated {new Date(snapshot.updatedAt).toLocaleString()}</>}
+              </div>
+            </div>
+            <StatusBadge variant="info">{tableRows.length} rows</StatusBadge>
+            <ActionButton
+              variant="primary"
+              size="sm"
+              loading={combinedStatus === "downloading"}
+              onClick={handleDownloadCombined}
+            >
+              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Download Combined PDF"}
+            </ActionButton>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       {(() => {
         const done = allKeys.size
@@ -442,43 +478,6 @@ export default function ProjectDetailPage() {
                 </div>
               )
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Generated PDFs — one combined document over every support. */}
-      {hasPdfs && (
-        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
-            Generated PDF
-          </h2>
-
-          <div style={{
-            display: "flex", alignItems: "center", gap: "var(--space-3)",
-            padding: "var(--space-4)",
-            background: "var(--color-primary-soft)",
-            border: "1px solid var(--color-primary)",
-            borderRadius: "var(--radius-md)",
-            flexWrap: "wrap",
-          }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
-                Combined PDF
-              </div>
-              <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
-                All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one continuous table
-                {snapshot?.updatedAt && <> · Last updated {new Date(snapshot.updatedAt).toLocaleString()}</>}
-              </div>
-            </div>
-            <StatusBadge variant="info">{tableRows.length} rows</StatusBadge>
-            <ActionButton
-              variant="primary"
-              size="sm"
-              loading={combinedStatus === "downloading"}
-              onClick={handleDownloadCombined}
-            >
-              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Download Combined PDF"}
-            </ActionButton>
           </div>
         </div>
       )}
