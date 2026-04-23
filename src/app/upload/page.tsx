@@ -52,7 +52,10 @@ export default function UploadPage() {
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [missingValues, setMissingValues] = useState<Record<string, string>>({})
   const [selectedType, setSelectedType] = useState("")
-  const [classification, setClassification] = useState<"internal" | "external">("internal")
+  // Required upfront choice — quantities and available types follow the
+  // config matching this classification. Null until the user picks so the
+  // file upload zone stays disabled.
+  const [classification, setClassification] = useState<"internal" | "external" | null>(null)
 
   // Additional files for batch upload
   const [additionalFiles, setAdditionalFiles] = useState<File[]>([])
@@ -127,7 +130,7 @@ export default function UploadPage() {
   }
 
   const handleParse = async () => {
-    if (!file) return
+    if (!file || !classification) return
     setParsing(true)
     try {
       const result = await parseExcelFile(file)
@@ -189,7 +192,7 @@ export default function UploadPage() {
   }, [parseResult])
 
   const finalize = () => {
-    if (!parseResult || !projectId) return
+    if (!parseResult || !projectId || !classification) return
     const overrides: Record<string, string> = { ...missingValues }
     if (typeMissing && selectedType) overrides["type"] = selectedType
 
@@ -336,7 +339,69 @@ export default function UploadPage() {
       {/* Upload area */}
       {project && (
         <>
-          <FileUploadZone file={file} status={status} errorMessage={error} onFileSelect={handleFileSelect} onFileRemove={handleFileRemove} />
+          {/* Step 1 — required upfront choice. Decides which project
+              type configs (internal vs external) the parsed rows pull
+              quantities from, so it has to happen before file parse. */}
+          <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-2)" }}>
+              Step 1 — Is this an Internal or External upload?
+            </h2>
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-4)" }}>
+              Item quantities and allowed types are pulled from the matching project config. Pick first — the file uploader unlocks once you do.
+            </p>
+            <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+              {(["internal", "external"] as const).map((opt) => {
+                const active = classification === opt
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => {
+                      if (classification === opt) return
+                      // Switching classification after a file was parsed would
+                      // mix qtys from the wrong config. Reset the upload flow
+                      // if there's anything in progress.
+                      if (file || parseResult) {
+                        handleFileRemove()
+                        setAdditionalFiles([])
+                        setAdditionalParseResults([])
+                      }
+                      setClassification(opt)
+                    }}
+                    style={{
+                      padding: "var(--space-3) var(--space-5)",
+                      minWidth: 160,
+                      background: active ? "var(--color-primary)" : "var(--color-surface-2)",
+                      color: active ? "#fff" : "var(--color-text)",
+                      border: active ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                      borderRadius: "var(--radius-md)",
+                      fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600,
+                      cursor: "pointer", textTransform: "capitalize",
+                    }}
+                  >
+                    {opt}
+                  </button>
+                )
+              })}
+            </div>
+            {classification && (
+              <div style={{ marginTop: "var(--space-3)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
+                Using <strong style={{ color: "var(--color-primary)", textTransform: "capitalize" }}>{classification}</strong> types for this upload
+                {(() => {
+                  const names = typeConfigs.filter((tc) => (tc.classification || "internal") === classification).map((tc) => tc.typeName)
+                  return names.length > 0 ? <> — {names.join(", ")}</> : <> — no {classification} types configured yet.</>
+                })()}
+              </div>
+            )}
+          </div>
+
+          {/* Step 2 — file picker, gated behind Step 1. */}
+          <div style={{ opacity: classification ? 1 : 0.45, pointerEvents: classification ? undefined : "none" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-3)" }}>
+              Step 2 — Select Excel file
+            </h2>
+            <FileUploadZone file={file} status={status} errorMessage={error} onFileSelect={handleFileSelect} onFileRemove={handleFileRemove} />
+          </div>
 
           {hasProjectTypes && (
             <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "var(--space-4)" }}>
@@ -403,28 +468,6 @@ export default function UploadPage() {
                     {parsingAdditional && <span style={{ marginLeft: "var(--space-2)" }}>Parsing...</span>}
                   </div>
                 )}
-              </div>
-
-              {/* Internal / External classification */}
-              <div style={cardStyle}>
-                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>Support Classification</h2>
-                <div style={{ display: "flex", gap: "var(--space-3)" }}>
-                  {(["internal", "external"] as const).map((opt) => (
-                    <label key={opt} style={{
-                      display: "flex", alignItems: "center", gap: "var(--space-2)",
-                      padding: "var(--space-2) var(--space-4)",
-                      background: classification === opt ? "var(--color-primary-soft)" : "var(--color-surface-2)",
-                      border: classification === opt ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
-                      borderRadius: "var(--radius-md)", cursor: "pointer",
-                      fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600,
-                      color: classification === opt ? "var(--color-primary)" : "var(--color-text-muted)",
-                      textTransform: "capitalize",
-                    }}>
-                      <input type="radio" name="classification" value={opt} checked={classification === opt} onChange={() => setClassification(opt)} style={{ accentColor: "var(--color-primary)" }} />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
               </div>
 
               {typeMissing && (() => {
@@ -512,9 +555,14 @@ export default function UploadPage() {
             <p style={{ fontFamily: "var(--font-body)", fontSize: "0.9375rem", color: "var(--color-text-muted)", marginBottom: "var(--space-2)" }}>
               Upload <strong style={{ color: "var(--color-text)" }}>{pendingFile.name}</strong> to
             </p>
-            <p style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 700, color: "var(--color-primary)", marginBottom: "var(--space-6)" }}>
+            <p style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 700, color: "var(--color-primary)", marginBottom: "var(--space-3)" }}>
               {project.clientName}
             </p>
+            {classification && (
+              <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-6)" }}>
+                as <strong style={{ color: "var(--color-primary)", textTransform: "capitalize" }}>{classification}</strong> — quantities will follow the {classification} project config
+              </p>
+            )}
             <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center" }}>
               <ActionButton variant="secondary" onClick={cancelUpload}>Cancel</ActionButton>
               <ActionButton variant="primary" onClick={confirmUpload}>Confirm</ActionButton>
