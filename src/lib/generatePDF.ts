@@ -200,6 +200,146 @@ function renderTypeSection(params: RenderSectionParams): void {
   doc.text(`Generated ${new Date().toLocaleDateString("en-US")}`, pw - mx, ph - 5, { align: "right" })
 }
 
+interface RenderFlatParams {
+  doc: jsPDF
+  fonts: { display: string; body: string }
+  title: string
+  subtitle: string
+  rows: SupportRow[]
+  typeConfigs: SupportTypeConfig[]
+  logoDataUrl?: string | null
+}
+
+/**
+ * Single continuous table across every row regardless of type. The column set
+ * is the UNION of all length letters that appear and all item columns from the
+ * provided typeConfigs, so rows whose type doesn't use a given column just
+ * render an empty cell. autoTable handles pagination on its own.
+ */
+function renderFlatTable(params: RenderFlatParams): void {
+  const { doc, fonts, title, subtitle, rows, typeConfigs, logoDataUrl } = params
+  const pw = doc.internal.pageSize.getWidth()
+  const ph = doc.internal.pageSize.getHeight()
+  const mx = 14
+
+  const lastLength = maxLengthKey(rows)
+  const lastLengthIdx = LENGTH_KEYS.indexOf(lastLength)
+  const activeLengths = LENGTH_KEYS.slice(0, lastLengthIdx + 1)
+
+  // Union of item columns across every configured type — mixed-type rows need
+  // the full column set so each row can fill in just its own items.
+  const itemCols = buildItemColumns(typeConfigs)
+
+  const itemGroups: { itemName: string; variantLabels: string[] }[] = []
+  for (const ic of itemCols) {
+    const existing = itemGroups.find((g) => g.itemName === ic.itemName)
+    if (existing) existing.variantLabels.push(ic.variantLabel)
+    else itemGroups.push({ itemName: ic.itemName, variantLabels: [ic.variantLabel] })
+  }
+
+  const headStyles = {
+    fillColor: PRIMARY,
+    textColor: [255, 255, 255] as [number, number, number],
+    fontSize: 6,
+    fontStyle: "bold" as const,
+    halign: "center" as const,
+    valign: "middle" as const,
+  }
+
+  const headRow1: CellDef[] = []
+  const headRow2: CellDef[] = []
+
+  for (const c of PRE_LENGTH) {
+    headRow1.push({ content: c.label, rowSpan: 2, styles: headStyles })
+  }
+  headRow1.push({ content: "LENGTH", colSpan: activeLengths.length, styles: headStyles })
+  for (const k of activeLengths) headRow2.push({ content: k.toUpperCase(), styles: headStyles })
+  headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
+
+  for (const g of itemGroups) {
+    const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
+    if (isVariant) {
+      headRow1.push({ content: g.itemName.toUpperCase(), colSpan: g.variantLabels.length, styles: headStyles })
+      for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
+    } else {
+      headRow1.push({ content: g.itemName.toUpperCase(), rowSpan: 2, styles: headStyles })
+    }
+  }
+
+  headRow1.push({ content: "REMARKS", rowSpan: 2, styles: headStyles })
+
+  const body = rows.map((row) => {
+    const cells: string[] = []
+    for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
+    for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
+    cells.push(String(row.total ?? ""))
+    for (const ic of itemCols) {
+      cells.push(String(row.itemQtys?.[ic.itemName]?.[ic.variantLabel] ?? ""))
+    }
+    cells.push(String(row.remarks ?? ""))
+    return cells
+  })
+
+  doc.setFillColor(...PRIMARY)
+  doc.rect(0, 0, pw, 3, "F")
+
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, "PNG", mx, 7, 12, 12)
+    } catch { /* ignore */ }
+  }
+
+  doc.setFont(fonts.display, "bold")
+  doc.setFontSize(14)
+  doc.setTextColor(...DARK)
+  doc.text(title, mx + 16, 13)
+
+  doc.setFont(fonts.body, "normal")
+  doc.setFontSize(8)
+  doc.setTextColor(...MUTED)
+  doc.text(subtitle, mx + 16, 18)
+
+  autoTable(doc, {
+    startY: 24,
+    head: [headRow1, headRow2],
+    body,
+    styles: {
+      fontSize: 6.5,
+      cellPadding: 1.6,
+      font: fonts.body,
+      textColor: DARK,
+      lineColor: BORDER,
+      lineWidth: 0.15,
+      halign: "center",
+      valign: "middle",
+    },
+    headStyles: {
+      fillColor: PRIMARY,
+      textColor: [255, 255, 255],
+      fontSize: 6,
+      font: fonts.display,
+      fontStyle: "bold",
+      cellPadding: 2,
+    },
+    alternateRowStyles: { fillColor: [250, 251, 254] },
+    theme: "grid",
+    margin: { left: mx, right: mx, top: 24, bottom: 8 },
+    // Redraw the page chrome (accent bars + footer) on every new page that
+    // autoTable creates as the table overflows.
+    didDrawPage: () => {
+      doc.setFillColor(...PRIMARY)
+      doc.rect(0, 0, pw, 3, "F")
+      doc.setFillColor(...PRIMARY)
+      doc.rect(0, ph - 3, pw, 3, "F")
+      doc.setFont(fonts.body, "normal")
+      doc.setFontSize(6)
+      doc.setTextColor(...MUTED)
+      doc.text("Support MTO Generator", mx, ph - 5)
+      doc.text(`Generated ${new Date().toLocaleDateString("en-US")}`, pw - mx, ph - 5, { align: "right" })
+    },
+  })
+}
+
 async function loadLogoDataUrl(): Promise<string | null> {
   try {
     const logoRes = await fetch("/logo.png")
@@ -228,8 +368,9 @@ export async function generatePDF(
 }
 
 /**
- * Combined PDF: every type's schedule rendered back-to-back into a single
- * document, one type per page (or more if autoTable overflows).
+ * Combined PDF: every row from every type merged into ONE continuous table.
+ * autoTable paginates automatically across as many pages as needed. Rows are
+ * ordered by type (grouped) so the combined sheet stays readable.
  */
 export async function generateCombinedPDF(
   grouped: Record<string, SupportRow[]>,
@@ -241,18 +382,36 @@ export async function generateCombinedPDF(
   const fonts = getFontNames(customLoaded)
   const logoDataUrl = await loadLogoDataUrl()
 
-  const entries = Object.entries(grouped).filter(([, rows]) => rows.length > 0)
-  entries.forEach(([type, rows], idx) => {
-    if (idx > 0) doc.addPage()
-    renderTypeSection({ doc, fonts, type, rows, projectName, typeConfigs, logoDataUrl })
+  const allRows: SupportRow[] = []
+  const typesUsed: string[] = []
+  for (const [type, rows] of Object.entries(grouped)) {
+    if (!rows.length) continue
+    typesUsed.push(type)
+    for (const r of rows) allRows.push(r)
+  }
+
+  const subtitle = [
+    projectName,
+    `${allRows.length} supports`,
+    typesUsed.length > 0 ? `${typesUsed.length} type${typesUsed.length !== 1 ? "s" : ""}: ${typesUsed.join(", ")}` : null,
+  ].filter(Boolean).join(" | ")
+
+  renderFlatTable({
+    doc,
+    fonts,
+    title: "Support Schedule — Combined",
+    subtitle,
+    rows: allRows,
+    typeConfigs,
+    logoDataUrl,
   })
 
   return doc.output("blob")
 }
 
 /**
- * Build a PDF for an explicit set of rows (e.g. user selection), grouped by
- * their own type. Pages are added per type. Subtitle is tagged as a selection.
+ * Build a PDF for an explicit set of rows (e.g. user selection). Rendered as
+ * a single continuous table — one heading, one body, autoTable paginates.
  */
 export async function generateSelectionPDF(
   rows: SupportRow[],
@@ -264,26 +423,31 @@ export async function generateSelectionPDF(
   const fonts = getFontNames(customLoaded)
   const logoDataUrl = await loadLogoDataUrl()
 
-  const grouped: Record<string, SupportRow[]> = {}
+  const typesUsed = Array.from(new Set(rows.map((r) => r.type).filter(Boolean)))
+  const subtitle = [
+    projectName,
+    `Selected · ${rows.length} supports`,
+    typesUsed.length > 0 ? typesUsed.join(", ") : null,
+  ].filter(Boolean).join(" | ")
+
+  // Keep same-type rows adjacent while preserving their original order.
+  const buckets: Record<string, SupportRow[]> = {}
   for (const r of rows) {
     const t = r.type || "Unknown"
-    if (!grouped[t]) grouped[t] = []
-    grouped[t].push(r)
+    if (!buckets[t]) buckets[t] = []
+    buckets[t].push(r)
   }
+  const ordered: SupportRow[] = []
+  for (const rs of Object.values(buckets)) ordered.push(...rs)
 
-  const entries = Object.entries(grouped).filter(([, rs]) => rs.length > 0)
-  entries.forEach(([type, rs], idx) => {
-    if (idx > 0) doc.addPage()
-    renderTypeSection({
-      doc,
-      fonts,
-      type,
-      rows: rs,
-      projectName,
-      typeConfigs,
-      logoDataUrl,
-      subtitleOverride: `${projectName ? `${projectName} | ` : ""}Selected · ${rs.length} supports`,
-    })
+  renderFlatTable({
+    doc,
+    fonts,
+    title: "Support Schedule — Selection",
+    subtitle,
+    rows: ordered,
+    typeConfigs,
+    logoDataUrl,
   })
 
   return doc.output("blob")
