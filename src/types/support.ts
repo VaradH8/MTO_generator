@@ -30,6 +30,14 @@ export interface SupportRow {
    */
   itemQtys: Record<string, Record<string, string>>
   remarks: string
+  /**
+   * Classification the upload was submitted under. Used to disambiguate
+   * when the same type name exists in both internal and external project
+   * configs — the PDF filter reads this tag to include only the matching
+   * rows. Optional for backwards compatibility with rows written before
+   * this field existed.
+   */
+  classification?: "internal" | "external"
   _rowIndex: number
   _hasErrors: boolean
   _missingFields: string[]

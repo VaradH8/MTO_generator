@@ -199,7 +199,7 @@ export default function UploadPage() {
     ]
 
     const rows: SupportRow[] = allRawRows.map((row, mergedIdx) => {
-      const updated: SupportRow = { ...row, lengths: { ...row.lengths }, itemQtys: {} }
+      const updated: SupportRow = { ...row, lengths: { ...row.lengths }, itemQtys: {}, classification }
       // Auto-number slNo 1..N across merged rows unless the input sheet
       // provided an explicit value.
       updated.slNo = row.slNo.trim() || String(mergedIdx + 1)
@@ -225,9 +225,15 @@ export default function UploadPage() {
         if (idx !== -1) remainingMissing.splice(idx, 1)
       }
 
-      // Populate itemQtys from project type config
+      // Populate itemQtys from the project type config that matches BOTH
+      // the type name AND the classification this upload was submitted
+      // under. Otherwise a project with "Type 1" in both internal and
+      // external configs would pick whichever came first in the array.
       const normalizedType = updated.type.trim().toLowerCase()
-      const typeConfig = typeConfigs.find((t: SupportTypeConfig) => t.typeName.trim().toLowerCase() === normalizedType)
+      const typeConfig = typeConfigs.find((t: SupportTypeConfig) =>
+        t.typeName.trim().toLowerCase() === normalizedType &&
+        (t.classification || "internal") === classification
+      )
       if (typeConfig?.items) {
         for (const item of typeConfig.items) {
           if (item.variants && item.variants.length > 0) {

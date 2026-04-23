@@ -91,6 +91,26 @@ export default function ProjectDetailPage() {
   const [selectionStatus, setSelectionStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [showTable, setShowTable] = useState(true)
 
+  // Classification filter for Combined PDF generation. Rows uploaded as
+  // "internal" are included only under internal/all; external only under
+  // external/all. Legacy rows without a classification tag fall back to
+  // "internal" so they still appear in sensible places.
+  type CombinedFilter = "all" | "internal" | "external"
+  const [combinedFilter, setCombinedFilter] = useState<CombinedFilter>("all")
+
+  const rowClassification = useCallback(
+    (r: SupportRow) => (r.classification || "internal"),
+    [],
+  )
+  const filterRows = useCallback((rows: SupportRow[], filter: CombinedFilter) => {
+    if (filter === "all") return rows
+    return rows.filter((r) => rowClassification(r) === filter)
+  }, [rowClassification])
+  const filterConfigs = useCallback((cfg: SupportTypeConfig[], filter: CombinedFilter) => {
+    if (filter === "all") return cfg
+    return cfg.filter((t) => (t.classification || "internal") === filter)
+  }, [])
+
   // History of every Combined PDF generation, newest first. Fetched from the
   // server so it survives reloads and shows up for every user.
   const [pdfVersions, setPdfVersions] = useState<PdfVersion[]>([])
@@ -132,9 +152,16 @@ export default function ProjectDetailPage() {
     if (!hasPdfs) return
     setCombinedStatus("downloading")
     try {
-      const blob = await generateCombinedPDF(groupedSupports, projectName, typeConfigs)
+      const filteredRows = filterRows(tableRows, combinedFilter)
+      if (filteredRows.length === 0) {
+        setCombinedStatus("error")
+        return
+      }
+      const filteredConfigs = filterConfigs(typeConfigs, combinedFilter)
+      const blob = await generateCombinedPDF(groupByType(filteredRows), projectName, filteredConfigs)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
-      triggerDownload(blob, `${base}_combined.pdf`)
+      const suffix = combinedFilter === "all" ? "combined" : combinedFilter
+      triggerDownload(blob, `${base}_${suffix}.pdf`)
 
       // Record this generation as a new version so it shows up in history.
       // Fire-and-forget: the download already succeeded — don't block on write.
@@ -142,9 +169,10 @@ export default function ProjectDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rows: tableRows,
-          typeConfigs,
+          rows: filteredRows,
+          typeConfigs: filteredConfigs,
           generatedBy: user?.username || "unknown",
+          label: combinedFilter === "all" ? "All" : combinedFilter === "internal" ? "Internal" : "External",
         }),
       })
         .then((res) => res.ok ? refreshVersions() : null)
@@ -444,36 +472,83 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Action row — generates a new version from the current table. */}
-          {hasPdfs && (
-            <div style={{
-              display: "flex", alignItems: "center", gap: "var(--space-3)",
-              padding: "var(--space-4)",
-              background: "var(--color-primary-soft)",
-              border: "1px solid var(--color-primary)",
-              borderRadius: "var(--radius-md)",
-              marginBottom: "var(--space-4)",
-              flexWrap: "wrap",
-            }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
-                  Generate New Combined PDF
+          {hasPdfs && (() => {
+            const filteredPreview = filterRows(tableRows, combinedFilter)
+            const filteredTypes = new Set(filteredPreview.map((r) => r.type).filter(Boolean))
+            const filterLabel = combinedFilter === "all" ? "All" : combinedFilter === "internal" ? "Internal" : "External"
+            return (
+              <div style={{
+                padding: "var(--space-4)",
+                background: "var(--color-primary-soft)",
+                border: "1px solid var(--color-primary)",
+                borderRadius: "var(--radius-md)",
+                marginBottom: "var(--space-4)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap", marginBottom: "var(--space-3)" }}>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
+                      Generate New Combined PDF
+                    </div>
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                      {filterLabel} · {filteredTypes.size} type{filteredTypes.size !== 1 ? "s" : ""} · {filteredPreview.length} support{filteredPreview.length !== 1 ? "s" : ""}
+                      {snapshot?.updatedAt && <> · Table last updated {new Date(snapshot.updatedAt).toLocaleString()}</>}
+                    </div>
+                  </div>
+                  <StatusBadge variant="info">{filteredPreview.length} rows</StatusBadge>
+                  <ActionButton
+                    variant="primary"
+                    size="sm"
+                    loading={combinedStatus === "downloading"}
+                    disabled={filteredPreview.length === 0}
+                    onClick={handleDownloadCombined}
+                  >
+                    {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Generate & Download"}
+                  </ActionButton>
                 </div>
-                <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
-                  All {pdfTypes.length} type{pdfTypes.length !== 1 ? "s" : ""} · {tableRows.length} supports in one continuous table
-                  {snapshot?.updatedAt && <> · Table last updated {new Date(snapshot.updatedAt).toLocaleString()}</>}
+
+                {/* Classification picker — decides which rows + configs the PDF includes. */}
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                    Include
+                  </span>
+                  {(["all", "internal", "external"] as const).map((opt) => {
+                    const active = combinedFilter === opt
+                    const label = opt === "all" ? "All" : opt === "internal" ? "Internal only" : "External only"
+                    return (
+                      <label
+                        key={opt}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          padding: "4px 10px",
+                          background: active ? "var(--color-primary)" : "var(--color-surface)",
+                          color: active ? "#fff" : "var(--color-text)",
+                          border: active ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                          borderRadius: "var(--radius-md)",
+                          fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name={`combinedFilter-${projectId}`}
+                          value={opt}
+                          checked={active}
+                          onChange={() => setCombinedFilter(opt)}
+                          style={{ accentColor: "var(--color-primary)", margin: 0 }}
+                        />
+                        {label}
+                      </label>
+                    )
+                  })}
+                  {filteredPreview.length === 0 && (
+                    <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-warning)" }}>
+                      No rows tagged as {combinedFilter}. Upload an Excel with this classification first.
+                    </span>
+                  )}
                 </div>
               </div>
-              <StatusBadge variant="info">{tableRows.length} rows</StatusBadge>
-              <ActionButton
-                variant="primary"
-                size="sm"
-                loading={combinedStatus === "downloading"}
-                onClick={handleDownloadCombined}
-              >
-                {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Generate & Download"}
-              </ActionButton>
-            </div>
-          )}
+            )
+          })()}
 
           {/* History — every Combined PDF ever generated for this project. */}
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
@@ -497,8 +572,13 @@ export default function ProjectDetailPage() {
                     #{pdfVersions.length - idx}
                   </span>
                   <div style={{ flex: 1, minWidth: 180 }}>
-                    <div style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)" }}>
-                      {new Date(v.generatedAt).toLocaleString()}
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)" }}>
+                        {new Date(v.generatedAt).toLocaleString()}
+                      </span>
+                      {v.label && (
+                        <StatusBadge variant={v.label.toLowerCase().startsWith("ext") ? "warning" : "info"}>{v.label}</StatusBadge>
+                      )}
                     </div>
                     <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
                       by {v.generatedBy} · {v.rowCount} supports · {v.typeCount} type{v.typeCount !== 1 ? "s" : ""}
