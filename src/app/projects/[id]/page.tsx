@@ -598,11 +598,9 @@ export default function ProjectDetailPage() {
                   >
                     {versionDownloading === v.id ? "Preparing..." : "Download"}
                   </ActionButton>
-                  {user?.role === "admin" && (
-                    <ActionButton variant="ghost" size="sm" onClick={() => handleDeleteVersion(v.id)}>
-                      Delete
-                    </ActionButton>
-                  )}
+                  <ActionButton variant="ghost" size="sm" onClick={() => handleDeleteVersion(v.id)}>
+                    Delete
+                  </ActionButton>
                 </div>
               ))
             )}
