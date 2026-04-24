@@ -11,7 +11,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useApprovals } from "@/context/ApprovalContext"
 import { useProjects } from "@/context/ProjectContext"
 import { useSettings } from "@/context/SettingsContext"
-import { generatePDF } from "@/lib/generatePDF"
+import { generatePDF, generateCombinedPDF } from "@/lib/generatePDF"
 import { generateZip } from "@/lib/generateZip"
 
 export default function OutputPage() {
@@ -35,6 +35,7 @@ export default function OutputPage() {
   const pdfLogos = { left: pdfConfig.leftLogoDataUrl || undefined, right: pdfConfig.rightLogoDataUrl || undefined }
   const [downloadStatus, setDownloadStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
   const [zipping, setZipping] = useState(false)
+  const [combinedStatus, setCombinedStatus] = useState<"ready" | "downloading" | "error">("ready")
 
   // Submit for admin approval when page loads — gate on `loaded` so we don't
   // fire before localStorage is hydrated (which would cause duplicate submissions).
@@ -117,6 +118,36 @@ export default function OutputPage() {
     finally { setZipping(false) }
   }
 
+  const handleGenerateCombined = async () => {
+    if (!groupedSupports) return
+    setCombinedStatus("downloading")
+    try {
+      const blob = await generateCombinedPDF(groupedSupports, currentProjectName, typeConfigs, pdfLogos)
+      const base = (currentProjectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      triggerDownload(blob, `${base}_combined.pdf`)
+
+      // Record this generation under the project so it shows up in the
+      // Generated PDFs history on the project detail page. Fire-and-forget.
+      if (currentProjectId) {
+        const rows = Object.values(groupedSupports).flat()
+        fetch(`/api/projects/${currentProjectId}/pdf-versions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rows,
+            typeConfigs,
+            generatedBy: user?.username || "unknown",
+            label: "All",
+          }),
+        }).catch(() => { /* best-effort */ })
+      }
+
+      setCombinedStatus("ready")
+    } catch {
+      setCombinedStatus("error")
+    }
+  }
+
   const handleStartOver = () => {
     setValidationResult(null)
     setGroupedSupports(null)
@@ -147,6 +178,41 @@ export default function OutputPage() {
           Submitted for admin review. Once approved, supports will be added to billing.
         </div>
       )}
+
+      {/* Generate & Download — one combined PDF for every row just parsed. */}
+      {(() => {
+        const totalRows = Object.values(groupedSupports).reduce((s, r) => s + r.length, 0)
+        return (
+          <div style={{
+            display: "flex", alignItems: "center", gap: "var(--space-3)",
+            padding: "var(--space-4)",
+            background: "var(--color-primary-soft)",
+            border: "1px solid var(--color-primary)",
+            borderRadius: "var(--radius-md)",
+            marginBottom: "var(--space-6)",
+            flexWrap: "wrap",
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 700, color: "var(--color-primary)" }}>
+                Generate & Download Combined PDF
+              </div>
+              <div style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                All {types.length} type{types.length !== 1 ? "s" : ""} · {totalRows} support{totalRows !== 1 ? "s" : ""} in one continuous table
+                {currentProjectId && <> · Saved to this project&apos;s PDF history</>}
+              </div>
+            </div>
+            <StatusBadge variant="info">{totalRows} rows</StatusBadge>
+            <ActionButton
+              variant="primary"
+              size="sm"
+              loading={combinedStatus === "downloading"}
+              onClick={handleGenerateCombined}
+            >
+              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Generate & Download"}
+            </ActionButton>
+          </div>
+        )
+      })()}
 
       {/* Type Cards */}
       {types.map(([type, rows]) => (
