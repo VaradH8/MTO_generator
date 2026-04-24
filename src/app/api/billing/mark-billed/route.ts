@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -20,6 +20,7 @@ function calculateAmount(totalSupports: number, totalRevisions: number): number 
 
 // POST /api/billing/mark-billed — create cycle from unbilled entries
 export async function POST(_req: NextRequest) {
+  await ensureMigrations()
   const client = await pool.connect()
   try {
     await client.query("BEGIN")

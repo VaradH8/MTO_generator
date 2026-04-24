@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -11,6 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMigrations()
     const { id } = await params
 
     const { rows: projects } = await pool.query(
@@ -107,6 +108,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMigrations()
     const { id } = await params
     const body = await req.json()
     const { clientName, supportRange, supportTypes, mapping } = body
@@ -189,6 +191,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMigrations()
     const { id } = await params
 
     const { rowCount } = await pool.query(

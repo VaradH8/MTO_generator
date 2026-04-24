@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 const DEFAULT_PDF_CONFIG = {
   pageSize: "A4",
@@ -13,6 +13,10 @@ const DEFAULT_PDF_CONFIG = {
 // GET /api/settings — return master items, types, and pdf config
 export async function GET(_req: NextRequest) {
   try {
+    // Run additive migrations first — this endpoint used to SELECT columns
+    // that didn't exist on pre-migration deployments, which failed the whole
+    // request and caused the client to auto-PUT defaults back (wiping data).
+    await ensureMigrations()
     // Master items
     const { rows: itemRows } = await pool.query(
       `SELECT id, name FROM master_items ORDER BY name`
@@ -81,15 +85,24 @@ export async function GET(_req: NextRequest) {
 
 // PUT /api/settings — save all settings (delete + re-insert in transaction)
 export async function PUT(req: NextRequest) {
+  await ensureMigrations()
   const client = await pool.connect()
   try {
     const body = await req.json()
     const { masterItems, masterTypes, pdfConfig } = body
+    // Opt-in flag required to clear either list. Without it, an empty
+    // array in the payload is treated as "no change" rather than
+    // "wipe everything". This is the guardrail that prevents a GET
+    // failure from cascading into a destructive PUT of DEFAULTS.
+    const replaceAll = body.replaceAll === true
+
+    const skipItems = Array.isArray(masterItems) && masterItems.length === 0 && !replaceAll
+    const skipTypes = Array.isArray(masterTypes) && masterTypes.length === 0 && !replaceAll
 
     await client.query("BEGIN")
 
-    // Re-insert master items
-    if (masterItems) {
+    // Re-insert master items (guarded — see skipItems above)
+    if (masterItems && !skipItems) {
       await client.query(`DELETE FROM master_items`)
       for (const item of masterItems) {
         const id = item.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
@@ -100,8 +113,8 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Re-insert master types with items
-    if (masterTypes) {
+    // Re-insert master types with items (guarded — see skipTypes above)
+    if (masterTypes && !skipTypes) {
       await client.query(`DELETE FROM master_type_items`)
       await client.query(`DELETE FROM master_types`)
       for (const type of masterTypes) {

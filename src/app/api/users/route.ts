@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 const ALLOWED_ROLES = new Set(["admin", "user", "client"])
 
@@ -10,6 +10,7 @@ const ALLOWED_ROLES = new Set(["admin", "user", "client"])
  * beyond internal use.
  */
 async function requireAdmin(req: NextRequest): Promise<NextResponse | null> {
+  await ensureMigrations()
   const requester = req.headers.get("x-username")?.trim()
   if (!requester) {
     return NextResponse.json({ error: "Missing x-username header" }, { status: 401 })

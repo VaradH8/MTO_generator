@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -8,6 +8,7 @@ function generateId() {
 // GET /api/approvals — list all approvals
 export async function GET(_req: NextRequest) {
   try {
+    await ensureMigrations()
     const { rows } = await pool.query(
       `SELECT id, project_id, project_name, generated_by, support_count,
               types, support_keys, status, reviewed_by, reviewed_at, generated_at
@@ -38,6 +39,7 @@ export async function GET(_req: NextRequest) {
 // POST /api/approvals — submit new approval
 export async function POST(req: NextRequest) {
   try {
+    await ensureMigrations()
     const body = await req.json()
     const { projectId, projectName, generatedBy, supportCount, types, supportKeys } = body
 

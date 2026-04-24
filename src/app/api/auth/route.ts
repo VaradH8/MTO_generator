@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 // POST /api/auth — login
 export async function POST(req: NextRequest) {
   try {
+    await ensureMigrations()
     const body = await req.json()
     const { username, password } = body
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -8,6 +8,7 @@ function generateId() {
 // GET /api/billing — return current entries and history
 export async function GET(_req: NextRequest) {
   try {
+    await ensureMigrations()
     // Current unbilled entries
     const { rows: currentRows } = await pool.query(
       `SELECT id, file_name, support_count, support_keys, types, created_at
@@ -65,6 +66,7 @@ export async function GET(_req: NextRequest) {
 // POST /api/billing — add billing entry
 export async function POST(req: NextRequest) {
   try {
+    await ensureMigrations()
     const body = await req.json()
     const { fileName, supportCount, supportKeys, types } = body
 

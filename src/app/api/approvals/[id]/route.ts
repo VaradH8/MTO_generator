@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 // PUT /api/approvals/[id] — approve or reject
 export async function PUT(
@@ -7,6 +7,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMigrations()
     const { id } = await params
     const body = await req.json()
     const { action, reviewerName } = body

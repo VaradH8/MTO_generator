@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -11,6 +11,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMigrations()
     const { id: projectId } = await params
     const body = await req.json()
     const { fileName, rowCount, types, supportKeys, classification } = body
