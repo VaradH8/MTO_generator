@@ -813,6 +813,71 @@ export default function SettingsPage() {
               />
             </div>
           </div>
+
+          {/* Logos — rendered at the top corners of every generated PDF.
+              No built-in fallback: upload a file or the corner stays blank. */}
+          <div>
+            <label style={labelStyle}>Logos (top corners of every PDF)</label>
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: -4, marginBottom: "var(--space-3)" }}>
+              PNG / JPG / WEBP. Keep each file under ~500 KB for fast PDF generation.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "var(--space-4)" }}>
+              {[
+                { side: "left" as const, label: "Top-Left Logo", value: pdfConfig.leftLogoDataUrl, onChange: (dataUrl: string) => updatePdfConfig({ leftLogoDataUrl: dataUrl }) },
+                { side: "right" as const, label: "Top-Right Logo", value: pdfConfig.rightLogoDataUrl, onChange: (dataUrl: string) => updatePdfConfig({ rightLogoDataUrl: dataUrl }) },
+              ].map((slot) => (
+                <div key={slot.side} style={{ border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", padding: "var(--space-3)", background: "var(--color-surface-2)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)" }}>
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)" }}>{slot.label}</span>
+                    {slot.value && (
+                      <button
+                        type="button"
+                        onClick={() => slot.onChange("")}
+                        style={{ fontFamily: "var(--font-display)", fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-error)", background: "none", border: "none", cursor: "pointer" }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <div style={{
+                    height: 96, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "var(--color-surface)", borderRadius: "var(--radius-sm)",
+                    border: "1px dashed var(--color-border)", marginBottom: "var(--space-2)",
+                    overflow: "hidden",
+                  }}>
+                    {slot.value ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={slot.value} alt={slot.label} style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }} />
+                    ) : (
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-faint)" }}>
+                        No logo — corner will stay blank in the PDF
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ""
+                      if (!file) return
+                      if (file.size > 1_000_000) {
+                        alert("Logo is larger than 1 MB. Please compress it first.")
+                        return
+                      }
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        const result = typeof reader.result === "string" ? reader.result : ""
+                        if (result) slot.onChange(result)
+                      }
+                      reader.readAsDataURL(file)
+                    }}
+                    style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text)" }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

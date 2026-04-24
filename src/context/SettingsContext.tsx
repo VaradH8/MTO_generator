@@ -7,12 +7,20 @@ export interface PdfConfig {
   headerText: string
   footerText: string
   primaryColor: string
+  /** Base64 data URL of the logo that renders at the top-LEFT of every PDF.
+   *  Empty string = no logo printed on that corner. No built-in fallback —
+   *  the PDF stays logo-less until a file is uploaded in Settings. */
+  leftLogoDataUrl: string
+  /** Same as leftLogoDataUrl but for the top-RIGHT corner. */
+  rightLogoDataUrl: string
 }
 
 const DEFAULT_PDF_CONFIG: PdfConfig = {
   headerText: "Support MTO",
   footerText: "Support MTO Generator",
   primaryColor: "#1F3CA8",
+  leftLogoDataUrl: "",
+  rightLogoDataUrl: "",
 }
 
 const DEFAULT_ITEMS: MasterItem[] = [

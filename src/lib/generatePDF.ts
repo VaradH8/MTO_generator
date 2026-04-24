@@ -131,6 +131,37 @@ function maxLengthKey(rows: SupportRow[]): LengthKey {
   return LENGTH_KEYS[Math.max(maxIdx, 3)]
 }
 
+/** Two optional logos rendered at the top corners of every PDF. Both are
+ *  base64 data URLs (image/png, image/jpeg, image/webp). If either is falsy
+ *  that corner stays blank — there is no built-in fallback image. */
+export interface PdfLogos {
+  left?: string
+  right?: string
+}
+
+/** Derive the jsPDF format argument from a data URL mime type. */
+function logoFormat(dataUrl: string): "PNG" | "JPEG" | "WEBP" {
+  const mime = dataUrl.slice(5).split(";")[0]?.toLowerCase() ?? ""
+  if (mime === "image/jpeg" || mime === "image/jpg") return "JPEG"
+  if (mime === "image/webp") return "WEBP"
+  return "PNG"
+}
+
+/** Add both corner logos to whatever is currently the active page. Safe to
+ *  call inside autoTable's didDrawPage so each overflow page keeps them. */
+function drawLogos(doc: jsPDF, logos: PdfLogos | undefined, pw: number, mx: number): void {
+  if (!logos) return
+  const y = 5
+  const w = 20
+  const h = 14
+  if (logos.left) {
+    try { doc.addImage(logos.left, logoFormat(logos.left), mx, y, w, h, undefined, "FAST") } catch { /* ignore */ }
+  }
+  if (logos.right) {
+    try { doc.addImage(logos.right, logoFormat(logos.right), pw - mx - w, y, w, h, undefined, "FAST") } catch { /* ignore */ }
+  }
+}
+
 interface RenderSectionParams {
   doc: jsPDF
   fonts: { display: string; body: string }
@@ -138,13 +169,13 @@ interface RenderSectionParams {
   rows: SupportRow[]
   projectName?: string
   typeConfigs: SupportTypeConfig[]
-  logoDataUrl?: string | null
+  logos?: PdfLogos
   /** Optional subtitle override (e.g. "Selected rows · 12 supports"). */
   subtitleOverride?: string
 }
 
 function renderTypeSection(params: RenderSectionParams): void {
-  const { doc, fonts, type, rows, projectName, typeConfigs, logoDataUrl, subtitleOverride } = params
+  const { doc, fonts, type, rows, projectName, typeConfigs, logos, subtitleOverride } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const mx = 14
@@ -225,22 +256,19 @@ function renderTypeSection(params: RenderSectionParams): void {
   doc.setFillColor(...PRIMARY)
   doc.rect(0, 0, pw, 3, "F")
 
-  if (logoDataUrl) {
-    try {
-      doc.addImage(logoDataUrl, "PNG", mx, 7, 12, 12)
-    } catch { /* ignore */ }
-  }
+  drawLogos(doc, logos, pw, mx)
 
+  // Title + subtitle centered so both corner logos can breathe.
   doc.setFont(fonts.display, "bold")
   doc.setFontSize(14)
   doc.setTextColor(...DARK)
-  doc.text(`Support Schedule — ${type}`, mx + 16, 13)
+  doc.text(`Support Schedule — ${type}`, pw / 2, 11, { align: "center" })
 
   doc.setFont(fonts.body, "normal")
   doc.setFontSize(8)
   doc.setTextColor(...MUTED)
   const subtitle = subtitleOverride ?? `${projectName ? `${projectName} | ` : ""}${rows.length} supports`
-  doc.text(subtitle, mx + 16, 18)
+  doc.text(subtitle, pw / 2, 17, { align: "center" })
 
   autoTable(doc, {
     startY: 24,
@@ -287,7 +315,7 @@ interface RenderFlatParams {
   subtitle: string
   rows: SupportRow[]
   typeConfigs: SupportTypeConfig[]
-  logoDataUrl?: string | null
+  logos?: PdfLogos
 }
 
 /**
@@ -297,7 +325,7 @@ interface RenderFlatParams {
  * render an empty cell. autoTable handles pagination on its own.
  */
 function renderFlatTable(params: RenderFlatParams): void {
-  const { doc, fonts, title, subtitle, rows, typeConfigs, logoDataUrl } = params
+  const { doc, fonts, title, subtitle, rows, typeConfigs, logos } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const mx = 14
@@ -376,21 +404,17 @@ function renderFlatTable(params: RenderFlatParams): void {
   doc.setFillColor(...PRIMARY)
   doc.rect(0, 0, pw, 3, "F")
 
-  if (logoDataUrl) {
-    try {
-      doc.addImage(logoDataUrl, "PNG", mx, 7, 12, 12)
-    } catch { /* ignore */ }
-  }
+  drawLogos(doc, logos, pw, mx)
 
   doc.setFont(fonts.display, "bold")
   doc.setFontSize(14)
   doc.setTextColor(...DARK)
-  doc.text(title, mx + 16, 13)
+  doc.text(title, pw / 2, 11, { align: "center" })
 
   doc.setFont(fonts.body, "normal")
   doc.setFontSize(8)
   doc.setTextColor(...MUTED)
-  doc.text(subtitle, mx + 16, 18)
+  doc.text(subtitle, pw / 2, 17, { align: "center" })
 
   autoTable(doc, {
     startY: 24,
@@ -424,6 +448,7 @@ function renderFlatTable(params: RenderFlatParams): void {
       doc.rect(0, 0, pw, 3, "F")
       doc.setFillColor(...PRIMARY)
       doc.rect(0, ph - 3, pw, 3, "F")
+      drawLogos(doc, logos, pw, mx)
       doc.setFont(fonts.body, "normal")
       doc.setFontSize(6)
       doc.setTextColor(...MUTED)
@@ -433,29 +458,18 @@ function renderFlatTable(params: RenderFlatParams): void {
   })
 }
 
-async function loadLogoDataUrl(): Promise<string | null> {
-  try {
-    const logoRes = await fetch("/logo.png")
-    const logoBuf = await logoRes.arrayBuffer()
-    const logoB64 = btoa(String.fromCharCode(...new Uint8Array(logoBuf)))
-    return `data:image/png;base64,${logoB64}`
-  } catch {
-    return null
-  }
-}
-
 export async function generatePDF(
   type: string,
   rows: SupportRow[],
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
+  logos?: PdfLogos,
 ): Promise<Blob> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
   const customLoaded = await registerFonts(doc)
   const fonts = getFontNames(customLoaded)
-  const logoDataUrl = await loadLogoDataUrl()
 
-  renderTypeSection({ doc, fonts, type, rows, projectName, typeConfigs, logoDataUrl })
+  renderTypeSection({ doc, fonts, type, rows, projectName, typeConfigs, logos })
 
   return doc.output("blob")
 }
@@ -469,11 +483,11 @@ export async function generateCombinedPDF(
   grouped: Record<string, SupportRow[]>,
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
+  logos?: PdfLogos,
 ): Promise<Blob> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
   const customLoaded = await registerFonts(doc)
   const fonts = getFontNames(customLoaded)
-  const logoDataUrl = await loadLogoDataUrl()
 
   const allRows: SupportRow[] = []
   const typesUsed: string[] = []
@@ -496,7 +510,7 @@ export async function generateCombinedPDF(
     subtitle,
     rows: allRows,
     typeConfigs,
-    logoDataUrl,
+    logos,
   })
 
   return doc.output("blob")
@@ -510,11 +524,11 @@ export async function generateSelectionPDF(
   rows: SupportRow[],
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
+  logos?: PdfLogos,
 ): Promise<Blob> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
   const customLoaded = await registerFonts(doc)
   const fonts = getFontNames(customLoaded)
-  const logoDataUrl = await loadLogoDataUrl()
 
   const typesUsed = Array.from(new Set(rows.map((r) => r.type).filter(Boolean)))
   const subtitle = [
@@ -540,7 +554,7 @@ export async function generateSelectionPDF(
     subtitle,
     rows: ordered,
     typeConfigs,
-    logoDataUrl,
+    logos,
   })
 
   return doc.output("blob")

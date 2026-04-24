@@ -6,6 +6,7 @@ import { useProjects } from "@/context/ProjectContext"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjectTables } from "@/context/ProjectTableContext"
 import { useAuth } from "@/context/AuthContext"
+import { useSettings } from "@/context/SettingsContext"
 import { generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
 import { parseMappingFile } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
@@ -49,6 +50,11 @@ export default function ProjectDetailPage() {
   const { projects, updateProject, getTypeConfigs } = useProjects()
   const { getProjectTable, saveProjectTable } = useProjectTables()
   const { user } = useAuth()
+  const { pdfConfig } = useSettings()
+  const pdfLogos = useMemo(() => ({
+    left: pdfConfig.leftLogoDataUrl || undefined,
+    right: pdfConfig.rightLogoDataUrl || undefined,
+  }), [pdfConfig.leftLogoDataUrl, pdfConfig.rightLogoDataUrl])
   const mappingFileRef = useRef<HTMLInputElement>(null)
   const [mappingUploadMsg, setMappingUploadMsg] = useState("")
 
@@ -158,7 +164,7 @@ export default function ProjectDetailPage() {
         return
       }
       const filteredConfigs = filterConfigs(typeConfigs, combinedFilter)
-      const blob = await generateCombinedPDF(groupByType(filteredRows), projectName, filteredConfigs)
+      const blob = await generateCombinedPDF(groupByType(filteredRows), projectName, filteredConfigs, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       const suffix = combinedFilter === "all" ? "combined" : combinedFilter
       triggerDownload(blob, `${base}_${suffix}.pdf`)
@@ -192,7 +198,7 @@ export default function ProjectDetailPage() {
       const data = await res.json()
       const rows: SupportRow[] = Array.isArray(data.rows) ? data.rows : []
       const cfg: SupportTypeConfig[] = Array.isArray(data.typeConfigs) ? data.typeConfigs : typeConfigs
-      const blob = await generateCombinedPDF(groupByType(rows), projectName, cfg)
+      const blob = await generateCombinedPDF(groupByType(rows), projectName, cfg, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       const ts = new Date(version.generatedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19)
       triggerDownload(blob, `${base}_combined_${ts}.pdf`)
@@ -215,7 +221,7 @@ export default function ProjectDetailPage() {
     setSelectionStatus("downloading")
     try {
       const selRows = tableRows.filter((r) => effectiveSelection.has(r._rowIndex))
-      const blob = await generateSelectionPDF(selRows, projectName, typeConfigs)
+      const blob = await generateSelectionPDF(selRows, projectName, typeConfigs, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_selected_${selRows.length}.pdf`)
       setSelectionStatus("ready")
