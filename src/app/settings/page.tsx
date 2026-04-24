@@ -232,6 +232,10 @@ export default function SettingsPage() {
     setItems(items.map((i) => i.itemId === itemId ? { ...i, [field]: value } : i))
   }
 
+  const toggleTypeItemPlate = (items: MasterTypeItem[], setItems: (i: MasterTypeItem[]) => void, itemId: string, field: "withPlate" | "withoutPlate") => {
+    setItems(items.map((i) => i.itemId === itemId ? { ...i, [field]: !i[field] } : i))
+  }
+
   const validateItemQtys = (items: MasterTypeItem[]): string | null => {
     for (const item of items) {
       if (item.variants && item.variants.length > 0) {
@@ -374,6 +378,18 @@ export default function SettingsPage() {
                     <label style={labelStyle}>Model</label>
                     <input value={item.model} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
                   </div>
+                </div>
+                {/* Per-item plate flags. Each drives a "Yes"/blank sub-column
+                    next to the item in every generated PDF. */}
+                <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginTop: "var(--space-1)" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={!!item.withPlate} onChange={() => toggleTypeItemPlate(items, setItems, item.itemId, "withPlate")} style={{ accentColor: "var(--color-primary)" }} />
+                    With Plate
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={!!item.withoutPlate} onChange={() => toggleTypeItemPlate(items, setItems, item.itemId, "withoutPlate")} style={{ accentColor: "var(--color-primary)" }} />
+                    Without Plate
+                  </label>
                 </div>
                 {hasVariants && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", paddingLeft: "var(--space-3)", borderLeft: "2px solid var(--color-primary-soft)" }}>

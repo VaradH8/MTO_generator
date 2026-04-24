@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest) {
         const supportTypes = await Promise.all(
           types.map(async (t: any) => {
             const { rows: items } = await pool.query(
-              `SELECT item_id, item_name, qty, make, model, variants
+              `SELECT item_id, item_name, qty, make, model, variants, with_plate, without_plate
                FROM project_type_items WHERE project_support_type_id = $1`,
               [t.id]
             )
@@ -37,6 +37,8 @@ export async function GET(_req: NextRequest) {
                 make: i.make,
                 model: i.model,
                 variants: Array.isArray(i.variants) && i.variants.length > 0 ? i.variants : undefined,
+                withPlate: !!i.with_plate,
+                withoutPlate: !!i.without_plate,
               })),
             }
           })

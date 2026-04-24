@@ -24,6 +24,10 @@ async function runMigrations(): Promise<void> {
     `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS classification VARCHAR(20) NOT NULL DEFAULT 'internal' CHECK (classification IN ('internal','external'))`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS table_rows JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     `CREATE TABLE IF NOT EXISTS project_pdf_versions (
        id               VARCHAR(50) PRIMARY KEY,
        project_id       VARCHAR(50) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

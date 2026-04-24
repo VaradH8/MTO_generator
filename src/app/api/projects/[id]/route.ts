@@ -33,7 +33,7 @@ export async function GET(
     const supportTypes = await Promise.all(
       types.map(async (t: any) => {
         const { rows: items } = await pool.query(
-          `SELECT item_id, item_name, qty, make, model, variants
+          `SELECT item_id, item_name, qty, make, model, variants, with_plate, without_plate
            FROM project_type_items WHERE project_support_type_id = $1`,
           [t.id]
         )
@@ -47,6 +47,8 @@ export async function GET(
             make: i.make,
             model: i.model,
             variants: Array.isArray(i.variants) && i.variants.length > 0 ? i.variants : undefined,
+            withPlate: !!i.with_plate,
+            withoutPlate: !!i.without_plate,
           })),
         }
       })
@@ -165,9 +167,9 @@ export async function PUT(
           for (const item of st.items) {
             const variantsJson = Array.isArray(item.variants) ? JSON.stringify(item.variants) : "[]"
             await pool.query(
-              `INSERT INTO project_type_items (project_support_type_id, item_id, item_name, qty, make, model, variants)
-               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-              [typeId, item.itemId, item.itemName, item.qty || "", item.make || "", item.model || "", variantsJson]
+              `INSERT INTO project_type_items (project_support_type_id, item_id, item_name, qty, make, model, variants, with_plate, without_plate)
+               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+              [typeId, item.itemId, item.itemName, item.qty || "", item.make || "", item.model || "", variantsJson, !!item.withPlate, !!item.withoutPlate]
             )
           }
         }

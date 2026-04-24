@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest) {
     const masterTypes = await Promise.all(
       typeRows.map(async (t: any) => {
         const { rows: typeItems } = await pool.query(
-          `SELECT item_id, item_name, qty, make, model, variants
+          `SELECT item_id, item_name, qty, make, model, variants, with_plate, without_plate
              FROM master_type_items WHERE master_type_id = $1 ORDER BY item_name`,
           [t.id]
         )
@@ -44,6 +44,8 @@ export async function GET(_req: NextRequest) {
             make: i.make ?? "",
             model: i.model ?? "",
             variants: Array.isArray(i.variants) && i.variants.length > 0 ? i.variants : undefined,
+            withPlate: !!i.with_plate,
+            withoutPlate: !!i.without_plate,
           })),
         }
       })
@@ -112,9 +114,9 @@ export async function PUT(req: NextRequest) {
           for (const item of type.items) {
             const variantsJson = Array.isArray(item.variants) ? JSON.stringify(item.variants) : "[]"
             await client.query(
-              `INSERT INTO master_type_items (master_type_id, item_id, item_name, qty, make, model, variants)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-              [typeId, item.itemId || "", item.itemName, item.qty || "", item.make || "", item.model || "", variantsJson]
+              `INSERT INTO master_type_items (master_type_id, item_id, item_name, qty, make, model, variants, with_plate, without_plate)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+              [typeId, item.itemId || "", item.itemName, item.qty || "", item.make || "", item.model || "", variantsJson, !!item.withPlate, !!item.withoutPlate]
             )
           }
         }

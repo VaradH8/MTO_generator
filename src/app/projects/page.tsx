@@ -78,6 +78,8 @@ export default function ProjectsPage() {
         make: i.make,
         model: i.model,
         variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
+        withPlate: !!i.withPlate,
+        withoutPlate: !!i.withoutPlate,
       })),
     }
     setEditTypes((prev) => [...prev, newType])
@@ -89,12 +91,16 @@ export default function ProjectsPage() {
     if (exists) {
       setCustomItems(customItems.filter((i) => i.itemId !== itemId))
     } else {
-      setCustomItems([...customItems, { itemId, itemName, qty: "", make: "", model: "" }])
+      setCustomItems([...customItems, { itemId, itemName, qty: "", make: "", model: "", withPlate: false, withoutPlate: false }])
     }
   }
 
   const updateCustomItemField = (itemId: string, field: keyof TypeItemConfig, value: string) => {
     setCustomItems(customItems.map((i) => i.itemId === itemId ? { ...i, [field]: value } : i))
+  }
+
+  const toggleCustomItemPlate = (itemId: string, field: "withPlate" | "withoutPlate") => {
+    setCustomItems(customItems.map((i) => i.itemId === itemId ? { ...i, [field]: !i[field] } : i))
   }
 
   const handleSaveCustomType = () => {
@@ -116,6 +122,8 @@ export default function ProjectsPage() {
         items: customItems.map((i) => ({
           itemId: i.itemId, itemName: i.itemName, qty: i.qty, make: i.make, model: i.model,
           variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
+          withPlate: !!i.withPlate,
+          withoutPlate: !!i.withoutPlate,
         })),
       })
     }
@@ -297,11 +305,23 @@ export default function ProjectsPage() {
                     {customItems.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
                         {customItems.map((item) => (
-                          <div key={item.itemId} style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr 1fr", gap: "var(--space-2)", padding: "var(--space-2)", background: "var(--color-surface)", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border)", alignItems: "end" }}>
-                            <div style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, color: "var(--color-text)", paddingTop: 6 }}>{item.itemName}</div>
-                            <input type="number" min="0" value={item.qty} onChange={(e) => updateCustomItemField(item.itemId, "qty", e.target.value)} placeholder="Qty" style={{ ...inputStyle, height: 30, fontSize: "0.75rem", textAlign: "center" }} />
-                            <input value={item.make} onChange={(e) => updateCustomItemField(item.itemId, "make", e.target.value)} placeholder="Make" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
-                            <input value={item.model} onChange={(e) => updateCustomItemField(item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
+                          <div key={item.itemId} style={{ padding: "var(--space-2)", background: "var(--color-surface)", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr 1fr", gap: "var(--space-2)", alignItems: "end" }}>
+                              <div style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, color: "var(--color-text)", paddingTop: 6 }}>{item.itemName}</div>
+                              <input type="number" min="0" value={item.qty} onChange={(e) => updateCustomItemField(item.itemId, "qty", e.target.value)} placeholder="Qty" style={{ ...inputStyle, height: 30, fontSize: "0.75rem", textAlign: "center" }} />
+                              <input value={item.make} onChange={(e) => updateCustomItemField(item.itemId, "make", e.target.value)} placeholder="Make" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
+                              <input value={item.model} onChange={(e) => updateCustomItemField(item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
+                            </div>
+                            <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+                              <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
+                                <input type="checkbox" checked={!!item.withPlate} onChange={() => toggleCustomItemPlate(item.itemId, "withPlate")} style={{ accentColor: "var(--color-primary)" }} />
+                                With Plate
+                              </label>
+                              <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
+                                <input type="checkbox" checked={!!item.withoutPlate} onChange={() => toggleCustomItemPlate(item.itemId, "withoutPlate")} style={{ accentColor: "var(--color-primary)" }} />
+                                Without Plate
+                              </label>
+                            </div>
                           </div>
                         ))}
                       </div>

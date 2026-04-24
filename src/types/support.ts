@@ -66,6 +66,11 @@ export interface MasterTypeItem {
   model: string
   /** Optional size variants. When present, the item spans N output sub-columns. */
   variants?: ItemVariant[]
+  /** When true, every PDF row for a type using this item shows "Yes" in the
+   *  per-item "With Plate" sub-column (blank otherwise). */
+  withPlate?: boolean
+  /** Same as withPlate but for the "Without Plate" sub-column. */
+  withoutPlate?: boolean
 }
 
 /* ─── Project Types ─── */
@@ -77,6 +82,10 @@ export interface TypeItemConfig {
   make: string
   model: string
   variants?: ItemVariant[]
+  /** Project-level mirror of MasterTypeItem.withPlate — drives the per-item
+   *  "With Plate" PDF sub-column for every row of this type. */
+  withPlate?: boolean
+  withoutPlate?: boolean
 }
 
 export interface SupportTypeConfig {

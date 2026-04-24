@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS master_type_items (
   variants       JSONB NOT NULL DEFAULT '[]'
 );
 ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ── Projects ────────────────────────────────────────────────────────
 
@@ -101,6 +103,8 @@ CREATE TABLE IF NOT EXISTS project_type_items (
   variants                JSONB NOT NULL DEFAULT '[]'
 );
 ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ── Upload Records ──────────────────────────────────────────────────
 
