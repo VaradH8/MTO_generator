@@ -7,13 +7,127 @@ import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import * as XLSX from "xlsx"
 import type { MasterTypeItem, ItemVariant } from "@/types/support"
+import { parseConfigFile, type ParsedConfig } from "@/lib/parseConfigFile"
 
 type ManagedUser = { username: string; role: "admin" | "user" | "client"; password: string; createdAt: string }
 
+interface ImportConflictType {
+  typeName: string
+  existing: { classification: string; items: { itemName: string; qty: string; make: string; model: string; withPlate: boolean; withoutPlate: boolean }[] }
+  incoming: { classification: string; items: { itemName: string; qty: string; make: string; model: string }[] }
+  diff: {
+    addedItems: string[]
+    removedItems: string[]
+    changedItems: { itemName: string; before: { qty: string; make: string; model: string }; after: { qty: string; make: string; model: string } }[]
+    classificationChanged: boolean
+    plateFlagsWillReset: boolean
+  }
+}
+
+interface ImportDryRun {
+  newItems: string[]
+  existingItems: string[]
+  newTypes: string[]
+  conflictTypes: ImportConflictType[]
+}
+
 export default function SettingsPage() {
-  const { masterItems, addItem, removeItem, renameItem, masterTypes, addMasterType, updateMasterType, removeMasterType, pdfConfig, updatePdfConfig } = useSettings()
+  const { masterItems, addItem, removeItem, renameItem, masterTypes, addMasterType, updateMasterType, removeMasterType, pdfConfig, updatePdfConfig, refreshFromServer } = useSettings()
   const { user: currentUser } = useAuth()
   const isAdmin = currentUser?.role === "admin"
+
+  // ─── Master config import (Excel) ───
+  const configImportFileRef = useRef<HTMLInputElement>(null)
+  const [importStage, setImportStage] = useState<"closed" | "pickClassification" | "analyzing" | "review" | "applying" | "result">("closed")
+  const [importClassification, setImportClassification] = useState<"internal" | "external">("internal")
+  const [importParsed, setImportParsed] = useState<ParsedConfig | null>(null)
+  const [importDryRun, setImportDryRun] = useState<ImportDryRun | null>(null)
+  const [importOverwrite, setImportOverwrite] = useState<Set<string>>(new Set())
+  const [importError, setImportError] = useState("")
+  const [importResult, setImportResult] = useState<{ itemsAdded: number; typesAdded: number; typesOverwritten: number; typesSkipped: number } | null>(null)
+
+  const closeImport = () => {
+    setImportStage("closed")
+    setImportParsed(null)
+    setImportDryRun(null)
+    setImportOverwrite(new Set())
+    setImportError("")
+    setImportResult(null)
+  }
+
+  const onImportFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setImportError("")
+    setImportStage("analyzing")
+    try {
+      const parsed = await parseConfigFile(file)
+      if (parsed.types.length === 0) {
+        setImportError(parsed.warnings.join("\n") || "No usable rows found in the file.")
+        setImportStage("pickClassification")
+        return
+      }
+      setImportParsed(parsed)
+      const res = await fetch("/api/settings/import-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "dryRun",
+          classification: importClassification,
+          types: parsed.types,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setImportError(data.error || `HTTP ${res.status}`); setImportStage("pickClassification"); return }
+      setImportDryRun(data)
+      // Default: do NOT overwrite anything (safest). User opts in per type.
+      setImportOverwrite(new Set())
+      setImportStage("review")
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Failed to read file")
+      setImportStage("pickClassification")
+    }
+  }
+
+  const toggleOverwrite = (typeName: string) => {
+    setImportOverwrite((prev) => {
+      const n = new Set(prev)
+      if (n.has(typeName)) n.delete(typeName); else n.add(typeName)
+      return n
+    })
+  }
+
+  const applyImport = async () => {
+    if (!importParsed) return
+    setImportStage("applying")
+    setImportError("")
+    try {
+      const res = await fetch("/api/settings/import-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "apply",
+          classification: importClassification,
+          types: importParsed.types,
+          overwriteTypeNames: Array.from(importOverwrite),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setImportError(data.error || `HTTP ${res.status}`); setImportStage("review"); return }
+      setImportResult({
+        itemsAdded: data.itemsAdded ?? 0,
+        typesAdded: data.typesAdded ?? 0,
+        typesOverwritten: data.typesOverwritten ?? 0,
+        typesSkipped: data.typesSkipped ?? 0,
+      })
+      await refreshFromServer()
+      setImportStage("result")
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Apply failed")
+      setImportStage("review")
+    }
+  }
 
   // ─── User management (admin only) ───
   const [users, setUsers] = useState<ManagedUser[]>([])
@@ -658,10 +772,24 @@ export default function SettingsPage() {
               }}>JSON</ActionButton>
             </>
           )}
+          <ActionButton
+            variant="secondary"
+            size="sm"
+            onClick={() => { setImportStage("pickClassification"); setImportError("") }}
+          >
+            Upload Config Excel
+          </ActionButton>
           {!addingType && (
             <ActionButton variant="primary" size="sm" onClick={() => setAddingType(true)}>+ Add Type</ActionButton>
           )}
         </div>
+        <input
+          ref={configImportFileRef}
+          type="file"
+          accept=".xlsx,.xls"
+          onChange={onImportFilePicked}
+          style={{ display: "none" }}
+        />
         <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-5)" }}>
           Pre-configure support types here. In projects, just select from this list.
         </p>
@@ -896,6 +1024,199 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* ─── Master Config Excel Import Modal ─── */}
+      {importStage !== "closed" && (
+        <div
+          className="animate-fade-in"
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400 }}
+          onClick={() => { if (importStage !== "applying") closeImport() }}
+        >
+          <div
+            className="animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--color-surface)",
+              borderRadius: "var(--radius-lg)",
+              padding: "var(--space-6)",
+              boxShadow: "var(--shadow-xl)",
+              maxWidth: 720, width: "92%",
+              maxHeight: "85vh", overflowY: "auto",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)" }}>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 700, color: "var(--color-text)" }}>
+                Import Master Config from Excel
+              </h2>
+              {importStage !== "applying" && (
+                <button onClick={closeImport} style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", color: "var(--color-text-faint)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>×</button>
+              )}
+            </div>
+
+            {importStage === "pickClassification" && (
+              <div>
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+                  Step 1 — pick the classification this file is for. Every type in the file will be imported under this classification. Existing master types and items are never deleted; conflicts are shown one-by-one in the next step.
+                </p>
+                <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-4)" }}>
+                  {(["internal", "external"] as const).map((opt) => (
+                    <label key={opt} style={{
+                      display: "flex", alignItems: "center", gap: "var(--space-2)",
+                      padding: "var(--space-2) var(--space-4)",
+                      background: importClassification === opt ? "var(--color-primary-soft)" : "var(--color-surface-2)",
+                      border: importClassification === opt ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                      borderRadius: "var(--radius-md)", cursor: "pointer",
+                      fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600,
+                      color: importClassification === opt ? "var(--color-primary)" : "var(--color-text-muted)",
+                      textTransform: "capitalize",
+                    }}>
+                      <input type="radio" checked={importClassification === opt} onChange={() => setImportClassification(opt)} />
+                      {opt}
+                    </label>
+                  ))}
+                </div>
+                {importError && (
+                  <pre style={{ padding: "var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginBottom: "var(--space-3)", whiteSpace: "pre-wrap" }}>{importError}</pre>
+                )}
+                <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
+                  <ActionButton variant="ghost" size="sm" onClick={closeImport}>Cancel</ActionButton>
+                  <ActionButton variant="primary" size="sm" onClick={() => configImportFileRef.current?.click()}>
+                    Pick Excel File
+                  </ActionButton>
+                </div>
+              </div>
+            )}
+
+            {importStage === "analyzing" && (
+              <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)" }}>Analyzing file…</p>
+            )}
+
+            {importStage === "review" && importDryRun && (
+              <div>
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+                  Step 2 — review and choose which existing types to overwrite. Anything not ticked is left alone.
+                </p>
+                {importParsed && importParsed.warnings.length > 0 && (
+                  <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-warning-soft)", borderLeft: "3px solid var(--color-warning)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text)", marginBottom: "var(--space-3)" }}>
+                    <strong>Warnings while parsing:</strong>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {importParsed.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", marginBottom: "var(--space-3)" }}>
+                  <StatusBadge variant="success">{importDryRun.newTypes.length} new types</StatusBadge>
+                  <StatusBadge variant="warning">{importDryRun.conflictTypes.length} conflicts</StatusBadge>
+                  <StatusBadge variant="info">{importDryRun.newItems.length} new items</StatusBadge>
+                  <StatusBadge variant="info">{importDryRun.existingItems.length} existing items reused</StatusBadge>
+                </div>
+
+                {importDryRun.newTypes.length > 0 && (
+                  <details style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-success-soft)", borderRadius: "var(--radius-sm)", marginBottom: "var(--space-3)" }}>
+                    <summary style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)", cursor: "pointer" }}>New types ({importDryRun.newTypes.length}) — will be added</summary>
+                    <p style={{ marginTop: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{importDryRun.newTypes.join(", ")}</p>
+                  </details>
+                )}
+
+                {importDryRun.newItems.length > 0 && (
+                  <details style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-primary-soft)", borderRadius: "var(--radius-sm)", marginBottom: "var(--space-3)" }}>
+                    <summary style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)", cursor: "pointer" }}>New items ({importDryRun.newItems.length}) — will be added to Master Items</summary>
+                    <p style={{ marginTop: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{importDryRun.newItems.join(", ")}</p>
+                  </details>
+                )}
+
+                {importDryRun.conflictTypes.length === 0 ? (
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+                    No type-name conflicts. Confirm to import everything as new.
+                  </p>
+                ) : (
+                  <div style={{ marginBottom: "var(--space-3)" }}>
+                    <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "var(--space-2)" }}>
+                      <span style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)" }}>
+                        Conflicting types — tick to overwrite
+                      </span>
+                      <ActionButton variant="ghost" size="sm" onClick={() => setImportOverwrite(new Set(importDryRun.conflictTypes.map((c) => c.typeName)))}>Select all</ActionButton>
+                      <ActionButton variant="ghost" size="sm" onClick={() => setImportOverwrite(new Set())}>Clear</ActionButton>
+                    </div>
+                    {importDryRun.conflictTypes.map((c) => (
+                      <div key={c.typeName} style={{ padding: "var(--space-3)", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", marginBottom: "var(--space-2)" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer", marginBottom: "var(--space-2)" }}>
+                          <input type="checkbox" checked={importOverwrite.has(c.typeName)} onChange={() => toggleOverwrite(c.typeName)} style={{ accentColor: "var(--color-primary)" }} />
+                          <span style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 700, color: "var(--color-text)" }}>Type {c.typeName}</span>
+                          {c.diff.classificationChanged && (
+                            <StatusBadge variant="warning">classification: {c.existing.classification} → {c.incoming.classification}</StatusBadge>
+                          )}
+                          {c.diff.plateFlagsWillReset && (
+                            <StatusBadge variant="warning">plate flags will reset</StatusBadge>
+                          )}
+                        </label>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)", fontFamily: "var(--font-body)", fontSize: "0.75rem" }}>
+                          <div>
+                            <div style={{ fontFamily: "var(--font-display)", fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Existing</div>
+                            {c.existing.items.length === 0 ? <span style={{ color: "var(--color-text-faint)" }}>(no items)</span> : c.existing.items.map((it, i) => (
+                              <div key={i} style={{ marginBottom: 2 }}>
+                                {it.itemName} · qty {it.qty || "—"} · {it.make || "—"} / {it.model || "—"}
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <div style={{ fontFamily: "var(--font-display)", fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Incoming (from file)</div>
+                            {c.incoming.items.map((it, i) => (
+                              <div key={i} style={{ marginBottom: 2 }}>
+                                {it.itemName} · qty {it.qty || "—"} · {it.make || "—"} / {it.model || "—"}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        {(c.diff.addedItems.length > 0 || c.diff.removedItems.length > 0 || c.diff.changedItems.length > 0) && (
+                          <div style={{ marginTop: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.7rem", color: "var(--color-text-muted)" }}>
+                            {c.diff.addedItems.length > 0 && <div><strong style={{ color: "var(--color-success)" }}>+ added:</strong> {c.diff.addedItems.join(", ")}</div>}
+                            {c.diff.removedItems.length > 0 && <div><strong style={{ color: "var(--color-error)" }}>− removed:</strong> {c.diff.removedItems.join(", ")}</div>}
+                            {c.diff.changedItems.map((ch, i) => (
+                              <div key={i}><strong style={{ color: "var(--color-warning)" }}>~ changed {ch.itemName}:</strong> qty {ch.before.qty}→{ch.after.qty}, model {ch.before.model}→{ch.after.model}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {importError && (
+                  <pre style={{ padding: "var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginBottom: "var(--space-3)", whiteSpace: "pre-wrap" }}>{importError}</pre>
+                )}
+                <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
+                  <ActionButton variant="ghost" size="sm" onClick={closeImport}>Cancel</ActionButton>
+                  <ActionButton variant="primary" size="sm" onClick={applyImport}>
+                    Apply ({importDryRun.newTypes.length} new + {importOverwrite.size} overwrite)
+                  </ActionButton>
+                </div>
+              </div>
+            )}
+
+            {importStage === "applying" && (
+              <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-muted)" }}>Applying changes…</p>
+            )}
+
+            {importStage === "result" && importResult && (
+              <div>
+                <div style={{ padding: "var(--space-3) var(--space-4)", background: "var(--color-success-soft)", borderLeft: "3px solid var(--color-success)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)", marginBottom: "var(--space-3)" }}>
+                  Import complete.
+                </div>
+                <ul style={{ paddingLeft: 18, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+                  <li>{importResult.itemsAdded} new master items added</li>
+                  <li>{importResult.typesAdded} new types added</li>
+                  <li>{importResult.typesOverwritten} existing types overwritten</li>
+                  <li>{importResult.typesSkipped} conflicting types left untouched</li>
+                </ul>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <ActionButton variant="primary" size="sm" onClick={closeImport}>Close</ActionButton>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

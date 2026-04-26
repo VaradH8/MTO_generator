@@ -44,6 +44,10 @@ interface SettingsContextType {
   removeMasterType: (id: string) => void
   pdfConfig: PdfConfig
   updatePdfConfig: (updates: Partial<PdfConfig>) => void
+  /** Re-pull settings from the server without flipping userDirty. Used after
+   *  the config-import endpoint changes server state directly so the UI
+   *  picks up the new master items / types without firing the auto-PUT. */
+  refreshFromServer: () => Promise<void>
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined)
@@ -154,11 +158,30 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setPdfConfig((prev) => ({ ...prev, ...updates }))
   }, [])
 
+  const refreshFromServer = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings")
+      if (!res.ok) {
+        console.error("refreshFromServer: HTTP", res.status)
+        return
+      }
+      const data = await res.json()
+      // Note: NOT calling markDirty here — server is the source of truth.
+      if (Array.isArray(data.masterItems)) setMasterItems(data.masterItems)
+      if (Array.isArray(data.masterTypes)) setMasterTypes(data.masterTypes)
+      if (data.pdfConfig) setPdfConfig({ ...DEFAULT_PDF_CONFIG, ...data.pdfConfig })
+      setServerOk(true)
+    } catch (e) {
+      console.error("refreshFromServer failed:", e)
+    }
+  }, [])
+
   return (
     <SettingsContext.Provider value={{
       masterItems, addItem, removeItem, renameItem,
       masterTypes, addMasterType, updateMasterType, removeMasterType,
       pdfConfig, updatePdfConfig,
+      refreshFromServer,
     }}>
       {children}
     </SettingsContext.Provider>
