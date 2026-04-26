@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import pool from "@/lib/db"
+import pool, { ensureMigrations } from "@/lib/db"
 
 // POST /api/users/change-password — self-service password change.
 // Requires current password verification; no admin role required.
 export async function POST(req: NextRequest) {
   try {
+    await ensureMigrations()
     const body = await req.json()
     const username = String(body.username ?? "").trim()
     const currentPassword = String(body.currentPassword ?? "")
