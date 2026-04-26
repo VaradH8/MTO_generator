@@ -14,13 +14,14 @@ import FindReplace from "./table/FindReplace"
 
 // ── Column definitions ──────────────────────────────────────────────────
 
+// The old global With Plate / Without Plate columns are dropped — those
+// indicators are now per-item sub-columns appended next to each item, in
+// sync with the PDF (see itemCols below).
 const PRE_LENGTH_COLS: ColumnDef[] = [
   { key: "slNo", label: "SL No", minWidth: 60, align: "center", type: "text", getValue: (r) => r.slNo },
   { key: "level", label: "Level", minWidth: 60, align: "center", type: "text", getValue: (r) => r.level },
   { key: "tagNumber", label: "Tag Number", minWidth: 160, align: "left", type: "text", getValue: (r) => r.tagNumber },
   { key: "type", label: "Type", minWidth: 90, align: "left", type: "text", getValue: (r) => r.type },
-  { key: "withPlate", label: "With Plate", minWidth: 80, align: "center", type: "number", getValue: (r) => r.withPlate },
-  { key: "withoutPlate", label: "Without Plate", minWidth: 90, align: "center", type: "number", getValue: (r) => r.withoutPlate },
 ]
 
 const LENGTH_COLS: ColumnDef[] = LENGTH_KEYS.map((k) => ({
@@ -117,12 +118,50 @@ export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRow
 
   // ── Build columns ─────────────────────────────────────────────────────
 
-  /** One flat column per (itemName, variantLabel?) across all configured types. */
+  /** One flat column per (itemName, variantLabel?) across all configured types,
+   *  followed by two read-only plate indicator columns (With Plate / Without
+   *  Plate) per item. The plate cells render "Yes" or blank based on the
+   *  flags configured for the row's matching type — they're not editable. */
   const itemCols: ColumnDef[] = useMemo(() => {
-    const cols: ColumnDef[] = []
+    // Build a (typeName::classification) -> (itemName -> {withPlate, withoutPlate}) lookup
+    // so each row's plate cell can read the correct config in O(1).
+    const plateByType = new Map<string, Map<string, { withPlate: boolean; withoutPlate: boolean }>>()
+    for (const tc of typeConfigs) {
+      const cls = (tc.classification ?? "internal")
+      const key = `${tc.typeName.trim().toLowerCase()}::${cls}`
+      let inner = plateByType.get(key)
+      if (!inner) { inner = new Map(); plateByType.set(key, inner) }
+      for (const item of tc.items) {
+        inner.set(item.itemName, { withPlate: !!item.withPlate, withoutPlate: !!item.withoutPlate })
+      }
+    }
+    const platesForRow = (r: SupportRow, itemName: string) => {
+      const t = r.type.trim().toLowerCase()
+      const cls = r.classification ?? "internal"
+      const direct = plateByType.get(`${t}::${cls}`)?.get(itemName)
+      if (direct) return direct
+      for (const [k, inner] of plateByType) {
+        if (!k.startsWith(`${t}::`)) continue
+        const v = inner.get(itemName)
+        if (v) return v
+      }
+      return { withPlate: false, withoutPlate: false }
+    }
+
+    // Pass 1 — collect qty columns for each item, in first-seen order.
+    const qtyByItem = new Map<string, ColumnDef[]>()
+    const itemOrder: string[] = []
+    const noteItem = (itemName: string) => {
+      if (!qtyByItem.has(itemName)) {
+        qtyByItem.set(itemName, [])
+        itemOrder.push(itemName)
+      }
+      return qtyByItem.get(itemName)!
+    }
     const seen = new Set<string>()
     for (const tc of typeConfigs) {
       for (const item of tc.items) {
+        const list = noteItem(item.itemName)
         if (item.variants && item.variants.length > 0) {
           for (const v of item.variants) {
             const key = `item:${item.itemName}::${v.label}`
@@ -130,7 +169,7 @@ export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRow
             seen.add(key)
             const itemName = item.itemName
             const variantLabel = v.label
-            cols.push({
+            list.push({
               key,
               label: `${itemName} · ${variantLabel}`,
               minWidth: 80,
@@ -144,7 +183,7 @@ export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRow
           if (seen.has(key)) continue
           seen.add(key)
           const itemName = item.itemName
-          cols.push({
+          list.push({
             key,
             label: itemName,
             minWidth: 90,
@@ -155,7 +194,31 @@ export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRow
         }
       }
     }
-    return cols
+
+    // Pass 2 — emit qty cols then the two plate cols, per item, in order.
+    const out: ColumnDef[] = []
+    for (const itemName of itemOrder) {
+      out.push(...(qtyByItem.get(itemName) || []))
+      out.push({
+        key: `item:${itemName}::__plate_with__`,
+        label: `${itemName} · With Plate`,
+        minWidth: 70,
+        align: "center",
+        type: "text",
+        readOnly: true,
+        getValue: (r: SupportRow) => platesForRow(r, itemName).withPlate ? "Yes" : "",
+      })
+      out.push({
+        key: `item:${itemName}::__plate_without__`,
+        label: `${itemName} · Without Plate`,
+        minWidth: 80,
+        align: "center",
+        type: "text",
+        readOnly: true,
+        getValue: (r: SupportRow) => platesForRow(r, itemName).withoutPlate ? "Yes" : "",
+      })
+    }
+    return out
   }, [typeConfigs])
 
   const baseColumns = useMemo(() => [

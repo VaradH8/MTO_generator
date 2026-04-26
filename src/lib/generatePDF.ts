@@ -9,14 +9,14 @@ const DARK: [number, number, number] = [13, 21, 48]
 const MUTED: [number, number, number] = [74, 84, 120]
 const BORDER: [number, number, number] = [201, 210, 228]
 
-/** Meta columns that appear before the LENGTH block. */
+/** Meta columns that appear before the LENGTH block. The old global
+ *  WITH PLATE / WITHOUT PLATE columns are now replaced by per-item
+ *  sub-columns appended after every item — see buildItemColumns. */
 const PRE_LENGTH: { key: keyof SupportRow; label: string }[] = [
   { key: "slNo", label: "SL NO" },
   { key: "level", label: "LEVEL" },
   { key: "tagNumber", label: "TAG NUMBER" },
   { key: "type", label: "TYPE" },
-  { key: "withPlate", label: "WITH PLATE" },
-  { key: "withoutPlate", label: "WITHOUT PLATE" },
 ]
 
 /** Column kinds inside an item group:
@@ -118,19 +118,11 @@ function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
     }
   }
 
-  // Items flagged (in any type config) for with-plate or without-plate get
-  // two trailing "Yes"/blank sub-columns appended. Items never flagged skip
-  // the plate columns so the PDF isn't littered with empty ones.
-  const itemsWithPlateCols = new Set<string>()
-  for (const tc of typeConfigs) {
-    for (const item of tc.items) {
-      if (item.withPlate || item.withoutPlate) itemsWithPlateCols.add(item.itemName)
-    }
-  }
-
   // Pass 2 — emit columns, skipping the empty-label variant for any item
-  // that also has at least one named variant. Append plate sub-columns for
-  // items that opted in.
+  // that also has at least one named variant. Two plate sub-columns are
+  // ALWAYS appended after each item ("With Plate" / "Without Plate") so
+  // every item carries the same shape regardless of how individual type
+  // configs ticked their flags. Cells render "Yes" or blank at body time.
   const cols: ItemColumn[] = []
   for (const itemName of itemOrder) {
     const entry = byItem.get(itemName)!
@@ -139,10 +131,8 @@ function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
       if (hasNamed && norm === "") continue
       cols.push({ itemName, variantLabel: entry.display.get(norm)!, kind: "qty" })
     }
-    if (itemsWithPlateCols.has(itemName)) {
-      cols.push({ itemName, variantLabel: "With Plate", kind: "withPlate" })
-      cols.push({ itemName, variantLabel: "Without Plate", kind: "withoutPlate" })
-    }
+    cols.push({ itemName, variantLabel: "With Plate", kind: "withPlate" })
+    cols.push({ itemName, variantLabel: "Without Plate", kind: "withoutPlate" })
   }
   return cols
 }
