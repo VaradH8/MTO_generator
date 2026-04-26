@@ -39,6 +39,11 @@ const HEADER_ALIASES: Record<string, string> = {
   "support type": "type",
   "final type": "type",
 
+  // material
+  "material": "material",
+  "mat": "material",
+  "matl": "material",
+
   // with plate / without plate
   "with plate": "withPlate",
   "with-plate": "withPlate",

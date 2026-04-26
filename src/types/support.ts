@@ -29,6 +29,9 @@ export interface SupportRow {
    * one entry per variant label.
    */
   itemQtys: Record<string, Record<string, string>>
+  /** Free-text per-row material (e.g. "MS", "SS304") — rendered as its own
+   *  column right after Type in both the on-screen table and the PDF. */
+  material?: string
   remarks: string
   /**
    * Classification the upload was submitted under. Used to disambiguate
@@ -119,10 +122,16 @@ export interface ActivityEntry {
   detail: string
 }
 
-/** Per-type column-mapping rule: which input columns (length keys) must have values */
+/** Per-type column-mapping rule: which input columns (length keys) must have
+ *  values, and which length keys (with what multiplier) feed into the row's
+ *  TOTAL. Cells marked `A_0` count A with factor 1; `A_2` counts A×2; plain
+ *  `A` is legacy and means "required for validation only, NOT in total".
+ *  Length keys absent from `factors` contribute nothing to the total. */
 export interface TypeMapping {
-  /** Required input length keys lowercased (e.g., ["a","b","c"]) — empty cells are flagged red */
+  /** Required input length keys lowercased (e.g., ["a","b","c"]) — empty cells are flagged red. */
   required: string[]
+  /** Length-key → multiplier (a..p). Only entries here drive the total. */
+  factors: Partial<Record<LengthKey, number>>
   /** Whether the mapping row contained explicit "MISSING" markers */
   hasMissing: boolean
 }

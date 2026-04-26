@@ -51,6 +51,7 @@ export function validateRows(mappedRows: Record<string, unknown>[]): ValidationR
       lengths,
       total: "",
       itemQtys: {},
+      material: String(raw["material"] ?? ""),
       remarks: String(raw["remarks"] ?? ""),
       _rowIndex: index,
       _hasErrors: false,

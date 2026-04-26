@@ -1,8 +1,19 @@
 import { jsPDF } from "jspdf"
 import autoTable, { type CellDef } from "jspdf-autotable"
 import { LENGTH_KEYS } from "@/types/support"
-import type { SupportRow, SupportTypeConfig, LengthKey } from "@/types/support"
+import type { SupportRow, SupportTypeConfig, LengthKey, TypeMapping } from "@/types/support"
 import { registerFonts, getFontNames } from "./pdfFonts"
+import { computeMappedTotal } from "./parseMapping"
+
+/** Per-project mapping (typeName → TypeMapping). Used to drive the row TOTAL
+ *  via configured length factors and to mark mapping-required cells. Optional
+ *  — when absent the legacy "sum of every length" total is rendered. */
+export type ProjectMapping = Record<string, TypeMapping>
+
+function totalForRow(row: SupportRow, mapping: ProjectMapping | undefined): string {
+  const m = mapping?.[row.type]
+  return computeMappedTotal(row.lengths, m)
+}
 
 const PRIMARY: [number, number, number] = [31, 60, 168]
 const DARK: [number, number, number] = [13, 21, 48]
@@ -11,12 +22,14 @@ const BORDER: [number, number, number] = [201, 210, 228]
 
 /** Meta columns that appear before the LENGTH block. The old global
  *  WITH PLATE / WITHOUT PLATE columns are now replaced by per-item
- *  sub-columns appended after every item — see buildItemColumns. */
+ *  sub-columns appended after every item — see buildItemColumns.
+ *  Material sits right after Type as a free-text per-row column. */
 const PRE_LENGTH: { key: keyof SupportRow; label: string }[] = [
   { key: "slNo", label: "SL NO" },
   { key: "level", label: "LEVEL" },
   { key: "tagNumber", label: "TAG NUMBER" },
   { key: "type", label: "TYPE" },
+  { key: "material", label: "MATERIAL" },
 ]
 
 /** Column kinds inside an item group:
@@ -222,10 +235,12 @@ interface RenderSectionParams {
   logos?: PdfLogos
   /** Optional subtitle override (e.g. "Selected rows · 12 supports"). */
   subtitleOverride?: string
+  /** Per-type mapping that drives the TOTAL value via length factors. */
+  mapping?: ProjectMapping
 }
 
 function renderTypeSection(params: RenderSectionParams): void {
-  const { doc, fonts, type, rows, projectName, typeConfigs, logos, subtitleOverride } = params
+  const { doc, fonts, type, rows, projectName, typeConfigs, logos, subtitleOverride, mapping } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const mx = 14
@@ -260,9 +275,9 @@ function renderTypeSection(params: RenderSectionParams): void {
   for (const c of PRE_LENGTH) {
     headRow1.push({ content: c.label, rowSpan: 2, styles: headStyles })
   }
-  headRow1.push({ content: "LENGTH", colSpan: activeLengths.length, styles: headStyles })
+  headRow1.push({ content: "LENGTH (mm)", colSpan: activeLengths.length, styles: headStyles })
   for (const k of activeLengths) headRow2.push({ content: k.toUpperCase(), styles: headStyles })
-  headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
+  headRow1.push({ content: "TOTAL (mm)", rowSpan: 2, styles: headStyles })
 
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
@@ -297,7 +312,7 @@ function renderTypeSection(params: RenderSectionParams): void {
     const cells: string[] = []
     for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
-    cells.push(String(row.total ?? ""))
+    cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {
       if (ic.kind === "qty") {
         const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
@@ -376,6 +391,8 @@ interface RenderFlatParams {
   rows: SupportRow[]
   typeConfigs: SupportTypeConfig[]
   logos?: PdfLogos
+  /** Per-type mapping that drives the TOTAL value via length factors. */
+  mapping?: ProjectMapping
 }
 
 /**
@@ -385,7 +402,7 @@ interface RenderFlatParams {
  * render an empty cell. autoTable handles pagination on its own.
  */
 function renderFlatTable(params: RenderFlatParams): void {
-  const { doc, fonts, title, subtitle, rows, typeConfigs, logos } = params
+  const { doc, fonts, title, subtitle, rows, typeConfigs, logos, mapping } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const mx = 14
@@ -420,9 +437,9 @@ function renderFlatTable(params: RenderFlatParams): void {
   for (const c of PRE_LENGTH) {
     headRow1.push({ content: c.label, rowSpan: 2, styles: headStyles })
   }
-  headRow1.push({ content: "LENGTH", colSpan: activeLengths.length, styles: headStyles })
+  headRow1.push({ content: "LENGTH (mm)", colSpan: activeLengths.length, styles: headStyles })
   for (const k of activeLengths) headRow2.push({ content: k.toUpperCase(), styles: headStyles })
-  headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
+  headRow1.push({ content: "TOTAL (mm)", rowSpan: 2, styles: headStyles })
 
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
@@ -456,7 +473,7 @@ function renderFlatTable(params: RenderFlatParams): void {
     const cells: string[] = []
     for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
-    cells.push(String(row.total ?? ""))
+    cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {
       if (ic.kind === "qty") {
         const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
@@ -534,12 +551,13 @@ export async function generatePDF(
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
   logos?: PdfLogos,
+  mapping?: ProjectMapping,
 ): Promise<Blob> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
   const customLoaded = await registerFonts(doc)
   const fonts = getFontNames(customLoaded)
 
-  renderTypeSection({ doc, fonts, type, rows, projectName, typeConfigs, logos })
+  renderTypeSection({ doc, fonts, type, rows, projectName, typeConfigs, logos, mapping })
 
   return doc.output("blob")
 }
@@ -554,6 +572,7 @@ export async function generateCombinedPDF(
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
   logos?: PdfLogos,
+  mapping?: ProjectMapping,
 ): Promise<Blob> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
   const customLoaded = await registerFonts(doc)
@@ -581,6 +600,7 @@ export async function generateCombinedPDF(
     rows: allRows,
     typeConfigs,
     logos,
+    mapping,
   })
 
   return doc.output("blob")
@@ -595,6 +615,7 @@ export async function generateSelectionPDF(
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
   logos?: PdfLogos,
+  mapping?: ProjectMapping,
 ): Promise<Blob> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" })
   const customLoaded = await registerFonts(doc)
@@ -625,6 +646,7 @@ export async function generateSelectionPDF(
     rows: ordered,
     typeConfigs,
     logos,
+    mapping,
   })
 
   return doc.output("blob")

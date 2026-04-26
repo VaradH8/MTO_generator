@@ -29,9 +29,12 @@ export default function OutputPage() {
   } = useSupportContext()
   const { user } = useAuth()
   const { submitForApproval } = useApprovals()
-  const { getTypeConfigs } = useProjects()
+  const { getTypeConfigs, projects } = useProjects()
   const { pdfConfig } = useSettings()
   const typeConfigs = currentProjectId ? getTypeConfigs(currentProjectId) : []
+  const projectMapping = (currentProjectId
+    ? (projects.find((p) => p.id === currentProjectId)?.mapping || {})
+    : {}) as Record<string, import("@/types/support").TypeMapping>
   const pdfLogos = { left: pdfConfig.leftLogoDataUrl || undefined, right: pdfConfig.rightLogoDataUrl || undefined }
   const [downloadStatus, setDownloadStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
   const [zipping, setZipping] = useState(false)
@@ -95,7 +98,7 @@ export default function OutputPage() {
     setDownloadStatus((s) => ({ ...s, [type]: "downloading" }))
     try {
       const rows = groupedSupports[type]
-      const blob = await generatePDF(type, rows, currentProjectName, typeConfigs, pdfLogos)
+      const blob = await generatePDF(type, rows, currentProjectName, typeConfigs, pdfLogos, projectMapping)
       triggerDownload(blob, `${type}-supports.pdf`)
       setDownloadStatus((s) => ({ ...s, [type]: "ready" }))
     } catch {
@@ -109,7 +112,7 @@ export default function OutputPage() {
       const pdfs = await Promise.all(
         types.map(async ([type, rows]) => ({
           name: `${type}-supports`,
-          blob: await generatePDF(type, rows, currentProjectName, typeConfigs, pdfLogos),
+          blob: await generatePDF(type, rows, currentProjectName, typeConfigs, pdfLogos, projectMapping),
         }))
       )
       const zipBlob = await generateZip(pdfs)
@@ -122,7 +125,7 @@ export default function OutputPage() {
     if (!groupedSupports) return
     setCombinedStatus("downloading")
     try {
-      const blob = await generateCombinedPDF(groupedSupports, currentProjectName, typeConfigs, pdfLogos)
+      const blob = await generateCombinedPDF(groupedSupports, currentProjectName, typeConfigs, pdfLogos, projectMapping)
       const base = (currentProjectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_combined.pdf`)
 

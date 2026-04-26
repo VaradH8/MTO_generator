@@ -3,7 +3,8 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import * as XLSX from "xlsx"
 import { LENGTH_KEYS } from "@/types/support"
-import type { SupportRow, SupportTypeConfig, LengthKey } from "@/types/support"
+import type { SupportRow, SupportTypeConfig, LengthKey, TypeMapping } from "@/types/support"
+import { computeMappedTotal } from "@/lib/parseMapping"
 import type { ColumnDef, CellAddress, CellRange, CellFormat, ConditionalRule, SortConfig, HistoryEntry } from "./table/types"
 import { cellKey, isCellInRange, normalizeRange } from "./table/types"
 import { useHistory } from "./table/useHistory"
@@ -16,26 +17,36 @@ import FindReplace from "./table/FindReplace"
 
 // The old global With Plate / Without Plate columns are dropped — those
 // indicators are now per-item sub-columns appended next to each item, in
-// sync with the PDF (see itemCols below).
+// sync with the PDF (see itemCols below). Material is a free-text per-row
+// column right after Type.
 const PRE_LENGTH_COLS: ColumnDef[] = [
   { key: "slNo", label: "SL No", minWidth: 60, align: "center", type: "text", getValue: (r) => r.slNo },
   { key: "level", label: "Level", minWidth: 60, align: "center", type: "text", getValue: (r) => r.level },
   { key: "tagNumber", label: "Tag Number", minWidth: 160, align: "left", type: "text", getValue: (r) => r.tagNumber },
   { key: "type", label: "Type", minWidth: 90, align: "left", type: "text", getValue: (r) => r.type },
+  { key: "material", label: "Material", minWidth: 100, align: "left", type: "text", alwaysEditable: true, getValue: (r) => r.material ?? "" },
 ]
 
 const LENGTH_COLS: ColumnDef[] = LENGTH_KEYS.map((k) => ({
   key: `lengths.${k}`,
-  label: k.toUpperCase(),
-  minWidth: 50,
+  label: `${k.toUpperCase()} (mm)`,
+  minWidth: 60,
   align: "center" as const,
   type: "number" as const,
   getValue: (r: SupportRow) => r.lengths[k as LengthKey] ?? "",
 }))
 
-const TOTAL_COL: ColumnDef = {
-  key: "total", label: "Total", minWidth: 70, align: "center", type: "number", readOnly: true,
-  getValue: (r) => r.total,
+function makeTotalCol(mapping?: Record<string, TypeMapping>): ColumnDef {
+  return {
+    key: "total", label: "Total (mm)", minWidth: 80, align: "center", type: "number", readOnly: true,
+    // Recompute on the fly so a freshly loaded row whose stored total predates
+    // a Mapping.xlsx upload still renders the correct mapping-driven number.
+    // Falls back to the stored row.total when mapping is absent.
+    getValue: (r) => {
+      if (mapping && mapping[r.type]) return computeMappedTotal(r.lengths, mapping[r.type])
+      return r.total
+    },
+  }
 }
 
 const REMARKS_COL: ColumnDef = {
@@ -48,6 +59,9 @@ const REMARKS_COL: ColumnDef = {
 interface SupportTableProps {
   rows: SupportRow[]
   typeConfigs?: SupportTypeConfig[]
+  /** Per-type mapping (from Mapping.xlsx) that drives the live TOTAL value
+   *  shown in the Total column, instead of the row's stored total field. */
+  projectMapping?: Record<string, TypeMapping>
   onCellEdit?: (rowIndex: number, colKey: string, value: string | number) => void
   onRowsChange?: (rows: SupportRow[]) => void
   disabled?: boolean
@@ -60,7 +74,7 @@ interface SupportTableProps {
 
 // ── Main Component ──────────────────────────────────────────────────────
 
-export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRowsChange, disabled = false, selectedRows, onRowSelect, onCellSelectionChange }: SupportTableProps) {
+export default function SupportTable({ rows, typeConfigs = [], projectMapping, onCellEdit, onRowsChange, disabled = false, selectedRows, onRowSelect, onCellSelectionChange }: SupportTableProps) {
   const tableRef = useRef<HTMLDivElement>(null)
 
   // ─── Core state ─────────────────────────────────────────────────────
@@ -221,13 +235,14 @@ export default function SupportTable({ rows, typeConfigs = [], onCellEdit, onRow
     return out
   }, [typeConfigs])
 
+  const totalCol = useMemo(() => makeTotalCol(projectMapping), [projectMapping])
   const baseColumns = useMemo(() => [
     ...PRE_LENGTH_COLS,
     ...LENGTH_COLS,
-    TOTAL_COL,
+    totalCol,
     ...itemCols,
     REMARKS_COL,
-  ], [itemCols])
+  ], [itemCols, totalCol])
 
   // Apply column order + visibility
   const visibleColumns = useMemo(() => {

@@ -8,13 +8,13 @@ import { useProjectTables } from "@/context/ProjectTableContext"
 import { useAuth } from "@/context/AuthContext"
 import { useSettings } from "@/context/SettingsContext"
 import { generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
-import { parseMappingFile } from "@/lib/parseMapping"
+import { parseMappingFile, computeMappedTotal } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import EmptyState from "@/components/EmptyState"
 import SupportTable from "@/components/SupportTable"
 import { LENGTH_KEYS } from "@/types/support"
-import type { SupportRow, LengthKey, GroupedSupports, SupportTypeConfig } from "@/types/support"
+import type { SupportRow, LengthKey, GroupedSupports, SupportTypeConfig, TypeMapping } from "@/types/support"
 
 interface PdfVersion {
   id: string
@@ -23,15 +23,6 @@ interface PdfVersion {
   label: string
   rowCount: number
   typeCount: number
-}
-
-function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
-  let sum = 0
-  for (const k of LENGTH_KEYS) {
-    const v = lengths[k]
-    if (v) sum += parseFloat(v) || 0
-  }
-  return sum % 1 === 0 ? String(sum) : sum.toFixed(2)
 }
 
 function groupByType(rows: SupportRow[]): GroupedSupports {
@@ -82,6 +73,10 @@ export default function ProjectDetailPage() {
   const projectId = String(params.id)
   const projectName = project?.clientName || currentProjectName || ""
   const typeConfigs = useMemo(() => (projectId ? getTypeConfigs(projectId) : []), [projectId, getTypeConfigs])
+  const projectMapping = useMemo<Record<string, TypeMapping>>(
+    () => (project?.mapping as Record<string, TypeMapping>) || {},
+    [project?.mapping],
+  )
 
   // Persisted table snapshot for this project — survives navigation / reload.
   const snapshot = getProjectTable(projectId)
@@ -164,7 +159,7 @@ export default function ProjectDetailPage() {
         return
       }
       const filteredConfigs = filterConfigs(typeConfigs, combinedFilter)
-      const blob = await generateCombinedPDF(groupByType(filteredRows), projectName, filteredConfigs, pdfLogos)
+      const blob = await generateCombinedPDF(groupByType(filteredRows), projectName, filteredConfigs, pdfLogos, projectMapping)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       const suffix = combinedFilter === "all" ? "combined" : combinedFilter
       triggerDownload(blob, `${base}_${suffix}.pdf`)
@@ -198,7 +193,7 @@ export default function ProjectDetailPage() {
       const data = await res.json()
       const rows: SupportRow[] = Array.isArray(data.rows) ? data.rows : []
       const cfg: SupportTypeConfig[] = Array.isArray(data.typeConfigs) ? data.typeConfigs : typeConfigs
-      const blob = await generateCombinedPDF(groupByType(rows), projectName, cfg, pdfLogos)
+      const blob = await generateCombinedPDF(groupByType(rows), projectName, cfg, pdfLogos, projectMapping)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       const ts = new Date(version.generatedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19)
       triggerDownload(blob, `${base}_combined_${ts}.pdf`)
@@ -221,7 +216,7 @@ export default function ProjectDetailPage() {
     setSelectionStatus("downloading")
     try {
       const selRows = tableRows.filter((r) => effectiveSelection.has(r._rowIndex))
-      const blob = await generateSelectionPDF(selRows, projectName, typeConfigs, pdfLogos)
+      const blob = await generateSelectionPDF(selRows, projectName, typeConfigs, pdfLogos, projectMapping)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_selected_${selRows.length}.pdf`)
       setSelectionStatus("ready")
@@ -245,7 +240,7 @@ export default function ProjectDetailPage() {
       if (colKey.startsWith("lengths.")) {
         const sub = colKey.slice("lengths.".length) as LengthKey
         next.lengths[sub] = stringVal
-        next.total = calcTotal(next.lengths)
+        next.total = computeMappedTotal(next.lengths, projectMapping[next.type])
       } else if (colKey.startsWith("item:")) {
         const rest = colKey.slice("item:".length)
         const [itemName, variantLabel = ""] = rest.split("::")
@@ -746,6 +741,7 @@ export default function ProjectDetailPage() {
               <SupportTable
                 rows={tableRows}
                 typeConfigs={typeConfigs}
+                projectMapping={projectMapping}
                 onCellEdit={handleCellEdit}
                 onRowsChange={handleRowsChange}
                 selectedRows={selectedRows}

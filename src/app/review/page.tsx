@@ -8,18 +8,10 @@ import EmptyState from "@/components/EmptyState"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjectTables } from "@/context/ProjectTableContext"
 import { useProjects } from "@/context/ProjectContext"
+import { computeMappedTotal } from "@/lib/parseMapping"
 import { LENGTH_KEYS } from "@/types/support"
 import type { LengthKey, SupportRow, SupportTypeConfig } from "@/types/support"
 import * as XLSX from "xlsx"
-
-function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
-  let sum = 0
-  for (const k of LENGTH_KEYS) {
-    const v = lengths[k]
-    if (v) sum += parseFloat(v) || 0
-  }
-  return sum % 1 === 0 ? String(sum) : sum.toFixed(2)
-}
 
 export default function ReviewPage() {
   const router = useRouter()
@@ -123,7 +115,7 @@ export default function ReviewPage() {
       if (colKey.startsWith("lengths.")) {
         const sub = colKey.slice("lengths.".length) as LengthKey
         updated.lengths[sub] = stringVal
-        updated.total = calcTotal(updated.lengths)
+        updated.total = computeMappedTotal(updated.lengths, projectMapping[updated.type])
       } else if (colKey.startsWith("item:")) {
         // Item qty cell: "item:<itemName>" or "item:<itemName>::<variantLabel>"
         const rest = colKey.slice("item:".length)
@@ -324,7 +316,7 @@ export default function ReviewPage() {
 
       {/* Table */}
       <div style={{ marginBottom: "var(--space-6)" }} id="print-area">
-        <SupportTable rows={filteredRows} typeConfigs={typeConfigs} onCellEdit={handleCellEdit} onRowsChange={handleRowsChange} disabled={generating} selectedRows={selectedRows} onRowSelect={toggleRowSelect} />
+        <SupportTable rows={filteredRows} typeConfigs={typeConfigs} projectMapping={projectMapping as Record<string, import("@/types/support").TypeMapping>} onCellEdit={handleCellEdit} onRowsChange={handleRowsChange} disabled={generating} selectedRows={selectedRows} onRowSelect={toggleRowSelect} />
       </div>
 
       {/* Actions */}

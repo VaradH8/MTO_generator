@@ -5,26 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation"
 import FileUploadZone from "@/components/FileUploadZone"
 import ActionButton from "@/components/ActionButton"
 import { parseExcelFile } from "@/lib/parseExcel"
+import { computeMappedTotal } from "@/lib/parseMapping"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjects } from "@/context/ProjectContext"
 import * as XLSX from "xlsx"
 import { LENGTH_KEYS } from "@/types/support"
-import type { ParseResult, SupportRow, SupportTypeConfig, LengthKey } from "@/types/support"
+import type { ParseResult, SupportRow, SupportTypeConfig, LengthKey, TypeMapping } from "@/types/support"
 
 type FileStatus = "idle" | "validating" | "valid" | "invalid"
 
 const FIELD_LABELS: Record<string, string> = {
-  level: "Level", tagNumber: "Tag Number", type: "Type",
-  withPlate: "With Plate", withoutPlate: "Without Plate",
-}
-
-function calcTotal(lengths: Partial<Record<LengthKey, string>>): string {
-  let sum = 0
-  for (const k of LENGTH_KEYS) {
-    const v = lengths[k]
-    if (v) sum += parseFloat(v) || 0
-  }
-  return sum % 1 === 0 ? String(sum) : sum.toFixed(2)
+  level: "Level", tagNumber: "Tag Number", type: "Type", material: "Material",
 }
 
 export default function UploadPage() {
@@ -41,6 +32,7 @@ export default function UploadPage() {
   const fromProject = !!urlProjectId // came from project detail page
 
   const typeConfigs = projectId ? getTypeConfigs(projectId) : []
+  const projectMapping: Record<string, TypeMapping> = (project?.mapping as Record<string, TypeMapping>) || {}
   const typeNames = projectId ? getTypeNames(projectId) : []
   const hasProjectTypes = typeNames.length > 0
 
@@ -73,7 +65,7 @@ export default function UploadPage() {
     if (!project) return
     // Input template: meta cols, then length cols A..P, then remarks.
     // Item qtys are filled from project config, not from the input Excel.
-    const baseCols = ["SL No", "Level", "Tag Number", "Type", "With Plate", "Without Plate"]
+    const baseCols = ["SL No", "Level", "Tag Number", "Type", "Material", "With Plate", "Without Plate"]
     const lengthCols = LENGTH_KEYS.map((k) => k.toUpperCase())
     const headers = [...baseCols, ...lengthCols, "Remarks"]
     const ws = XLSX.utils.aoa_to_sheet([headers])
@@ -249,7 +241,7 @@ export default function UploadPage() {
         }
       }
 
-      updated.total = calcTotal(updated.lengths)
+      updated.total = computeMappedTotal(updated.lengths, projectMapping[updated.type])
       const ti = remainingMissing.indexOf("total"); if (ti !== -1) remainingMissing.splice(ti, 1)
       updated._missingFields = remainingMissing
       updated._hasErrors = remainingMissing.some((f) => ["tagNumber", "type"].includes(f))
