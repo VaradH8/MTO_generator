@@ -15,16 +15,17 @@ import FindReplace from "./table/FindReplace"
 
 // ── Column definitions ──────────────────────────────────────────────────
 
-// The old global With Plate / Without Plate columns are dropped — those
-// indicators are now per-item sub-columns appended next to each item, in
-// sync with the PDF (see itemCols below). Material is a free-text per-row
-// column right after Type.
+// With Plate / Without Plate are free-text per-row columns right after
+// Material — they are NOT per-item. Item-level columns (qty + model)
+// live further right inside the item block (see itemCols).
 const PRE_LENGTH_COLS: ColumnDef[] = [
   { key: "slNo", label: "SL No", minWidth: 60, align: "center", type: "text", getValue: (r) => r.slNo },
   { key: "level", label: "Level", minWidth: 60, align: "center", type: "text", getValue: (r) => r.level },
   { key: "tagNumber", label: "Tag Number", minWidth: 160, align: "left", type: "text", getValue: (r) => r.tagNumber },
   { key: "type", label: "Type", minWidth: 90, align: "left", type: "text", getValue: (r) => r.type },
   { key: "material", label: "Material", minWidth: 100, align: "left", type: "text", alwaysEditable: true, getValue: (r) => r.material ?? "" },
+  { key: "withPlate", label: "With Plate", minWidth: 80, align: "center", type: "text", alwaysEditable: true, getValue: (r) => r.withPlate ?? "" },
+  { key: "withoutPlate", label: "Without Plate", minWidth: 90, align: "center", type: "text", alwaysEditable: true, getValue: (r) => r.withoutPlate ?? "" },
 ]
 
 const LENGTH_COLS: ColumnDef[] = LENGTH_KEYS.map((k) => ({
@@ -132,58 +133,33 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
 
   // ── Build columns ─────────────────────────────────────────────────────
 
-  /** One flat column per (itemName, variantLabel?) across all configured types,
-   *  followed by two read-only plate indicator columns (With Plate / Without
-   *  Plate) per item. The plate cells render "Yes" or blank based on the
-   *  flags configured for the row's matching type — they're not editable. */
+  /** One flat column per (itemName, variantLabel?) across all configured
+   *  types. Each cell renders "<qty> (<model>)" — variant model wins over
+   *  the parent item model and falls back to plain qty when no model is
+   *  configured. No per-item plate sub-columns: With Plate / Without Plate
+   *  are row-level fields handled by PRE_LENGTH_COLS. */
   const itemCols: ColumnDef[] = useMemo(() => {
-    // Build a (typeName::classification) -> (itemName -> {withPlate, withoutPlate}) lookup
-    // so each row's plate cell can read the correct config in O(1).
-    const plateByType = new Map<string, Map<string, { withPlate: boolean; withoutPlate: boolean }>>()
-    for (const tc of typeConfigs) {
-      const cls = (tc.classification ?? "internal")
-      const key = `${tc.typeName.trim().toLowerCase()}::${cls}`
-      let inner = plateByType.get(key)
-      if (!inner) { inner = new Map(); plateByType.set(key, inner) }
-      for (const item of tc.items) {
-        inner.set(item.itemName, { withPlate: !!item.withPlate, withoutPlate: !!item.withoutPlate })
-      }
-    }
-    const platesForRow = (r: SupportRow, itemName: string) => {
+    // Resolve the (variant-aware) model for a row+item lookup. Used inside
+    // every item cell's getValue.
+    const modelForRow = (r: SupportRow, itemName: string, variantLabel: string): string => {
       const t = r.type.trim().toLowerCase()
       const cls = r.classification ?? "internal"
-      const direct = plateByType.get(`${t}::${cls}`)?.get(itemName)
-      if (direct) return direct
-      for (const [k, inner] of plateByType) {
-        if (!k.startsWith(`${t}::`)) continue
-        const v = inner.get(itemName)
-        if (v) return v
+      const tc =
+        typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t && (c.classification ?? "internal") === cls) ||
+        typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t)
+      if (!tc) return ""
+      const item = tc.items.find((i) => i.itemName === itemName)
+      if (!item) return ""
+      if (variantLabel && item.variants) {
+        const vNorm = variantLabel.trim().toLowerCase()
+        const v = item.variants.find((vv) => vv.label.trim().toLowerCase() === vNorm)
+        if (v?.model) return v.model
       }
-      return { withPlate: false, withoutPlate: false }
+      return item.model || ""
     }
-
-    // Build a per-item model label so column headers can show
-    // "<ITEM>(<MODEL>)" — multiple distinct models comma-joined.
-    const modelsByItem = new Map<string, Set<string>>()
-    const noteModel = (itemName: string, model: string) => {
-      const m = (model || "").trim()
-      if (!m) return
-      let s = modelsByItem.get(itemName)
-      if (!s) { s = new Set(); modelsByItem.set(itemName, s) }
-      s.add(m)
-    }
-    for (const tc of typeConfigs) {
-      for (const item of tc.items) {
-        noteModel(item.itemName, item.model || "")
-        if (item.variants && item.variants.length > 0) {
-          for (const v of item.variants) noteModel(item.itemName, v.model || "")
-        }
-      }
-    }
-    const itemHeader = (itemName: string) => {
-      const set = modelsByItem.get(itemName)
-      if (!set || set.size === 0) return itemName
-      return `${itemName}(${Array.from(set).join(", ")})`
+    const formatCell = (qty: string, model: string) => {
+      if (!qty) return ""
+      return model ? `${qty} (${model})` : qty
     }
 
     // Pass 1 — collect qty columns for each item, in first-seen order.
@@ -209,11 +185,11 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
             const variantLabel = v.label
             list.push({
               key,
-              label: `${itemHeader(itemName)} · ${variantLabel}`,
-              minWidth: 80,
+              label: `${itemName} · ${variantLabel}`,
+              minWidth: 110,
               align: "center",
               type: "number",
-              getValue: (r: SupportRow) => r.itemQtys?.[itemName]?.[variantLabel] ?? "",
+              getValue: (r: SupportRow) => formatCell(r.itemQtys?.[itemName]?.[variantLabel] ?? "", modelForRow(r, itemName, variantLabel)),
             })
           }
         } else {
@@ -223,38 +199,20 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
           const itemName = item.itemName
           list.push({
             key,
-            label: itemHeader(itemName),
-            minWidth: 90,
+            label: itemName,
+            minWidth: 110,
             align: "center",
             type: "number",
-            getValue: (r: SupportRow) => r.itemQtys?.[itemName]?.[""] ?? "",
+            getValue: (r: SupportRow) => formatCell(r.itemQtys?.[itemName]?.[""] ?? "", modelForRow(r, itemName, "")),
           })
         }
       }
     }
 
-    // Pass 2 — emit qty cols then the two plate cols, per item, in order.
+    // Pass 2 — emit qty cols per item, in order. No plate sub-cols anymore.
     const out: ColumnDef[] = []
     for (const itemName of itemOrder) {
       out.push(...(qtyByItem.get(itemName) || []))
-      out.push({
-        key: `item:${itemName}::__plate_with__`,
-        label: `${itemHeader(itemName)} · With Plate`,
-        minWidth: 70,
-        align: "center",
-        type: "text",
-        readOnly: true,
-        getValue: (r: SupportRow) => platesForRow(r, itemName).withPlate ? "Yes" : "",
-      })
-      out.push({
-        key: `item:${itemName}::__plate_without__`,
-        label: `${itemHeader(itemName)} · Without Plate`,
-        minWidth: 80,
-        align: "center",
-        type: "text",
-        readOnly: true,
-        getValue: (r: SupportRow) => platesForRow(r, itemName).withoutPlate ? "Yes" : "",
-      })
     }
     return out
   }, [typeConfigs])

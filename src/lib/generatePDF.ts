@@ -20,67 +20,24 @@ const DARK: [number, number, number] = [13, 21, 48]
 const MUTED: [number, number, number] = [74, 84, 120]
 const BORDER: [number, number, number] = [201, 210, 228]
 
-/** Meta columns that appear before the LENGTH block. The old global
- *  WITH PLATE / WITHOUT PLATE columns are now replaced by per-item
- *  sub-columns appended after every item — see buildItemColumns.
- *  Material sits right after Type as a free-text per-row column. */
+/** Meta columns before the LENGTH block. With Plate / Without Plate are
+ *  free-text per-row fields right after Material — they are NOT per-item.
+ *  Item-level columns (qty + model) live further right inside the item
+ *  block; see buildItemColumns. */
 const PRE_LENGTH: { key: keyof SupportRow; label: string }[] = [
   { key: "slNo", label: "SL NO" },
   { key: "level", label: "LEVEL" },
   { key: "tagNumber", label: "TAG NUMBER" },
   { key: "type", label: "TYPE" },
   { key: "material", label: "MATERIAL" },
+  { key: "withPlate", label: "WITH PLATE" },
+  { key: "withoutPlate", label: "WITHOUT PLATE" },
 ]
-
-/** Column kinds inside an item group:
- *   - "qty"          : the usual per-variant quantity cell
- *   - "withPlate"    : "Yes" if the row's type-config has withPlate for this item
- *   - "withoutPlate" : same for withoutPlate
- *  Plate columns are only emitted when at least one type config for the item
- *  flags either plate checkbox — otherwise they'd be noise everywhere. */
-type ItemColumnKind = "qty" | "withPlate" | "withoutPlate"
 
 interface ItemColumn {
   itemName: string
-  /** Variant label for qty columns; for plate columns this is the header
-   *  label ("With Plate" / "Without Plate"). */
+  /** Variant label, or empty string for non-variant items. */
   variantLabel: string
-  kind: ItemColumnKind
-}
-
-type PlateFlags = { withPlate: boolean; withoutPlate: boolean }
-type PlateLookup = Map<string, Map<string, PlateFlags>>
-
-/** Build a (typeName+classification) → (itemName → plate flags) index so
- *  body cells can cheaply look up whether to render "Yes" or blank. */
-function buildPlateLookup(typeConfigs: SupportTypeConfig[]): PlateLookup {
-  const lookup: PlateLookup = new Map()
-  for (const tc of typeConfigs) {
-    const key = `${tc.typeName.trim().toLowerCase()}::${tc.classification || "internal"}`
-    let inner = lookup.get(key)
-    if (!inner) { inner = new Map(); lookup.set(key, inner) }
-    for (const item of tc.items) {
-      inner.set(item.itemName, {
-        withPlate: !!item.withPlate,
-        withoutPlate: !!item.withoutPlate,
-      })
-    }
-  }
-  return lookup
-}
-
-function platesForRow(lookup: PlateLookup, row: SupportRow, itemName: string): PlateFlags {
-  const typeKey = row.type.trim().toLowerCase()
-  const primary = lookup.get(`${typeKey}::${row.classification || "internal"}`)
-  const hit = primary?.get(itemName)
-  if (hit) return hit
-  // Fallback: any classification under the same type name.
-  for (const [k, inner] of lookup) {
-    if (!k.startsWith(`${typeKey}::`)) continue
-    const v = inner.get(itemName)
-    if (v) return v
-  }
-  return { withPlate: false, withoutPlate: false }
 }
 
 /** Variant dedupe key — trims whitespace + lowercases so "Z", " Z " and "z"
@@ -89,34 +46,29 @@ function normVariant(label: string): string {
   return label.trim().toLowerCase()
 }
 
-/** Build "<ITEM NAME>(MODEL)" header strings for each item, where MODEL is
- *  the union of distinct, non-empty model strings seen across every type
- *  config that lists that item (variants are aggregated up to the parent
- *  itemName). Returns plain itemName when no model is set anywhere.
- *  Multiple distinct models are comma-joined inside the parens. */
-function buildItemHeaderLabel(typeConfigs: SupportTypeConfig[]): (itemName: string) => string {
-  const modelsByItem = new Map<string, Set<string>>()
-  const note = (itemName: string, model: string) => {
-    const m = (model || "").trim()
-    if (!m) return
-    let s = modelsByItem.get(itemName)
-    if (!s) { s = new Set(); modelsByItem.set(itemName, s) }
-    s.add(m)
+/** Look up the (variant-aware) model for the given row+item. Variant model
+ *  wins over the parent item model; falls back to the parent. Used to render
+ *  "<qty> (<model>)" inside item cells in both renderers. */
+function modelForRow(
+  typeConfigs: SupportTypeConfig[],
+  row: SupportRow,
+  itemName: string,
+  variantLabel: string,
+): string {
+  const t = row.type.trim().toLowerCase()
+  const cls = row.classification ?? "internal"
+  const tc =
+    typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t && (c.classification ?? "internal") === cls) ||
+    typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t)
+  if (!tc) return ""
+  const item = tc.items.find((i) => i.itemName === itemName)
+  if (!item) return ""
+  if (variantLabel && item.variants) {
+    const vNorm = normVariant(variantLabel)
+    const v = item.variants.find((vv) => normVariant(vv.label) === vNorm)
+    if (v?.model) return v.model
   }
-  for (const tc of typeConfigs) {
-    for (const item of tc.items) {
-      note(item.itemName, item.model || "")
-      if (item.variants && item.variants.length > 0) {
-        for (const v of item.variants) note(item.itemName, v.model || "")
-      }
-    }
-  }
-  return (itemName: string) => {
-    const upper = itemName.toUpperCase()
-    const set = modelsByItem.get(itemName)
-    if (!set || set.size === 0) return upper
-    return `${upper}(${Array.from(set).join(", ")})`
-  }
+  return item.model || ""
 }
 
 /**
@@ -161,21 +113,17 @@ function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
     }
   }
 
-  // Pass 2 — emit columns, skipping the empty-label variant for any item
-  // that also has at least one named variant. Two plate sub-columns are
-  // ALWAYS appended after each item ("With Plate" / "Without Plate") so
-  // every item carries the same shape regardless of how individual type
-  // configs ticked their flags. Cells render "Yes" or blank at body time.
+  // Pass 2 — emit qty columns, skipping the empty-label variant for any
+  // item that also has at least one named variant. No plate sub-columns —
+  // With Plate / Without Plate are now row-level fields in PRE_LENGTH.
   const cols: ItemColumn[] = []
   for (const itemName of itemOrder) {
     const entry = byItem.get(itemName)!
     const hasNamed = entry.order.some((n) => n !== "")
     for (const norm of entry.order) {
       if (hasNamed && norm === "") continue
-      cols.push({ itemName, variantLabel: entry.display.get(norm)!, kind: "qty" })
+      cols.push({ itemName, variantLabel: entry.display.get(norm)! })
     }
-    cols.push({ itemName, variantLabel: "With Plate", kind: "withPlate" })
-    cols.push({ itemName, variantLabel: "Without Plate", kind: "withoutPlate" })
   }
   return cols
 }
@@ -283,7 +231,6 @@ function renderTypeSection(params: RenderSectionParams): void {
   const scopedConfigs = typeConfigs.filter((tc) => typesInRows.has(tc.typeName.trim().toLowerCase()))
   const activeConfigs = scopedConfigs.length > 0 ? scopedConfigs : typeConfigs
   const itemCols = buildItemColumns(activeConfigs)
-  const itemHeaderLabel = buildItemHeaderLabel(activeConfigs)
 
   const itemGroups: { itemName: string; variantLabels: string[] }[] = []
   for (const ic of itemCols) {
@@ -313,7 +260,7 @@ function renderTypeSection(params: RenderSectionParams): void {
 
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
-    const heading = itemHeaderLabel(g.itemName)
+    const heading = g.itemName.toUpperCase()
     if (isVariant) {
       headRow1.push({ content: heading, colSpan: g.variantLabels.length, styles: headStyles })
       for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
@@ -324,22 +271,18 @@ function renderTypeSection(params: RenderSectionParams): void {
 
   headRow1.push({ content: "REMARKS", rowSpan: 2, styles: headStyles })
 
-  // First QTY column seen for each item — used to let rows whose itemQtys
-  // store a value under "" (no-variant config) render it under the leading
-  // variant column (e.g. Z for L ANGLE) instead of vanishing. Plate columns
-  // are never primary.
+  // First column seen for each item — lets rows whose itemQtys store a value
+  // under "" (no-variant config) render it under the leading variant column
+  // (e.g. Z for L ANGLE) instead of vanishing.
   const primaryCol = new Set<string>()
   {
     const seenItems = new Set<string>()
     for (const ic of itemCols) {
-      if (ic.kind !== "qty") continue
       if (seenItems.has(ic.itemName)) continue
       seenItems.add(ic.itemName)
       primaryCol.add(`${ic.itemName}::${ic.variantLabel}`)
     }
   }
-
-  const plateLookup = buildPlateLookup(typeConfigs)
 
   const body = rows.map((row) => {
     const cells: string[] = []
@@ -347,14 +290,11 @@ function renderTypeSection(params: RenderSectionParams): void {
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {
-      if (ic.kind === "qty") {
-        const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
-        cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
-      } else {
-        const flags = platesForRow(plateLookup, row, ic.itemName)
-        const tick = ic.kind === "withPlate" ? flags.withPlate : flags.withoutPlate
-        cells.push(tick ? "Yes" : "")
-      }
+      const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
+      const qty = readItemValue(row, ic.itemName, ic.variantLabel, isPrimary)
+      if (!qty) { cells.push(""); continue }
+      const model = modelForRow(activeConfigs, row, ic.itemName, ic.variantLabel)
+      cells.push(model ? `${qty} (${model})` : qty)
     }
     cells.push(String(row.remarks ?? ""))
     return cells
@@ -447,7 +387,6 @@ function renderFlatTable(params: RenderFlatParams): void {
   // Union of item columns across every configured type — mixed-type rows need
   // the full column set so each row can fill in just its own items.
   const itemCols = buildItemColumns(typeConfigs)
-  const itemHeaderLabel = buildItemHeaderLabel(typeConfigs)
 
   const itemGroups: { itemName: string; variantLabels: string[] }[] = []
   for (const ic of itemCols) {
@@ -477,7 +416,7 @@ function renderFlatTable(params: RenderFlatParams): void {
 
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
-    const heading = itemHeaderLabel(g.itemName)
+    const heading = g.itemName.toUpperCase()
     if (isVariant) {
       headRow1.push({ content: heading, colSpan: g.variantLabels.length, styles: headStyles })
       for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
@@ -490,19 +429,15 @@ function renderFlatTable(params: RenderFlatParams): void {
 
   // See renderTypeSection — same primary-variant promotion so rows that
   // only have a "" entry under the item still land in the first column.
-  // Plate columns never get the primary promotion.
   const primaryCol = new Set<string>()
   {
     const seenItems = new Set<string>()
     for (const ic of itemCols) {
-      if (ic.kind !== "qty") continue
       if (seenItems.has(ic.itemName)) continue
       seenItems.add(ic.itemName)
       primaryCol.add(`${ic.itemName}::${ic.variantLabel}`)
     }
   }
-
-  const plateLookup = buildPlateLookup(typeConfigs)
 
   const body = rows.map((row) => {
     const cells: string[] = []
@@ -510,14 +445,11 @@ function renderFlatTable(params: RenderFlatParams): void {
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {
-      if (ic.kind === "qty") {
-        const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
-        cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
-      } else {
-        const flags = platesForRow(plateLookup, row, ic.itemName)
-        const tick = ic.kind === "withPlate" ? flags.withPlate : flags.withoutPlate
-        cells.push(tick ? "Yes" : "")
-      }
+      const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
+      const qty = readItemValue(row, ic.itemName, ic.variantLabel, isPrimary)
+      if (!qty) { cells.push(""); continue }
+      const model = modelForRow(typeConfigs, row, ic.itemName, ic.variantLabel)
+      cells.push(model ? `${qty} (${model})` : qty)
     }
     cells.push(String(row.remarks ?? ""))
     return cells
