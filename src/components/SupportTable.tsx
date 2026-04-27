@@ -29,7 +29,7 @@ const PRE_LENGTH_COLS: ColumnDef[] = [
 
 const LENGTH_COLS: ColumnDef[] = LENGTH_KEYS.map((k) => ({
   key: `lengths.${k}`,
-  label: `${k.toUpperCase()} (mm)`,
+  label: k.toUpperCase(),
   minWidth: 60,
   align: "center" as const,
   type: "number" as const,
@@ -38,7 +38,7 @@ const LENGTH_COLS: ColumnDef[] = LENGTH_KEYS.map((k) => ({
 
 function makeTotalCol(mapping?: Record<string, TypeMapping>): ColumnDef {
   return {
-    key: "total", label: "Total (mm)", minWidth: 80, align: "center", type: "number", readOnly: true,
+    key: "total", label: "Total", minWidth: 80, align: "center", type: "number", readOnly: true,
     // Recompute on the fly so a freshly loaded row whose stored total predates
     // a Mapping.xlsx upload still renders the correct mapping-driven number.
     // Falls back to the stored row.total when mapping is absent.
@@ -162,6 +162,30 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
       return { withPlate: false, withoutPlate: false }
     }
 
+    // Build a per-item model label so column headers can show
+    // "<ITEM>(<MODEL>)" — multiple distinct models comma-joined.
+    const modelsByItem = new Map<string, Set<string>>()
+    const noteModel = (itemName: string, model: string) => {
+      const m = (model || "").trim()
+      if (!m) return
+      let s = modelsByItem.get(itemName)
+      if (!s) { s = new Set(); modelsByItem.set(itemName, s) }
+      s.add(m)
+    }
+    for (const tc of typeConfigs) {
+      for (const item of tc.items) {
+        noteModel(item.itemName, item.model || "")
+        if (item.variants && item.variants.length > 0) {
+          for (const v of item.variants) noteModel(item.itemName, v.model || "")
+        }
+      }
+    }
+    const itemHeader = (itemName: string) => {
+      const set = modelsByItem.get(itemName)
+      if (!set || set.size === 0) return itemName
+      return `${itemName}(${Array.from(set).join(", ")})`
+    }
+
     // Pass 1 — collect qty columns for each item, in first-seen order.
     const qtyByItem = new Map<string, ColumnDef[]>()
     const itemOrder: string[] = []
@@ -185,7 +209,7 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
             const variantLabel = v.label
             list.push({
               key,
-              label: `${itemName} · ${variantLabel}`,
+              label: `${itemHeader(itemName)} · ${variantLabel}`,
               minWidth: 80,
               align: "center",
               type: "number",
@@ -199,7 +223,7 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
           const itemName = item.itemName
           list.push({
             key,
-            label: itemName,
+            label: itemHeader(itemName),
             minWidth: 90,
             align: "center",
             type: "number",
@@ -215,7 +239,7 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
       out.push(...(qtyByItem.get(itemName) || []))
       out.push({
         key: `item:${itemName}::__plate_with__`,
-        label: `${itemName} · With Plate`,
+        label: `${itemHeader(itemName)} · With Plate`,
         minWidth: 70,
         align: "center",
         type: "text",
@@ -224,7 +248,7 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
       })
       out.push({
         key: `item:${itemName}::__plate_without__`,
-        label: `${itemName} · Without Plate`,
+        label: `${itemHeader(itemName)} · Without Plate`,
         minWidth: 80,
         align: "center",
         type: "text",

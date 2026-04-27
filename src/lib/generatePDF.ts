@@ -89,6 +89,36 @@ function normVariant(label: string): string {
   return label.trim().toLowerCase()
 }
 
+/** Build "<ITEM NAME>(MODEL)" header strings for each item, where MODEL is
+ *  the union of distinct, non-empty model strings seen across every type
+ *  config that lists that item (variants are aggregated up to the parent
+ *  itemName). Returns plain itemName when no model is set anywhere.
+ *  Multiple distinct models are comma-joined inside the parens. */
+function buildItemHeaderLabel(typeConfigs: SupportTypeConfig[]): (itemName: string) => string {
+  const modelsByItem = new Map<string, Set<string>>()
+  const note = (itemName: string, model: string) => {
+    const m = (model || "").trim()
+    if (!m) return
+    let s = modelsByItem.get(itemName)
+    if (!s) { s = new Set(); modelsByItem.set(itemName, s) }
+    s.add(m)
+  }
+  for (const tc of typeConfigs) {
+    for (const item of tc.items) {
+      note(item.itemName, item.model || "")
+      if (item.variants && item.variants.length > 0) {
+        for (const v of item.variants) note(item.itemName, v.model || "")
+      }
+    }
+  }
+  return (itemName: string) => {
+    const upper = itemName.toUpperCase()
+    const set = modelsByItem.get(itemName)
+    if (!set || set.size === 0) return upper
+    return `${upper}(${Array.from(set).join(", ")})`
+  }
+}
+
 /**
  * Union across all configured types, preserving first-seen ordering.
  *
@@ -251,7 +281,9 @@ function renderTypeSection(params: RenderSectionParams): void {
 
   const typesInRows = new Set(rows.map((r) => r.type.trim().toLowerCase()).filter(Boolean))
   const scopedConfigs = typeConfigs.filter((tc) => typesInRows.has(tc.typeName.trim().toLowerCase()))
-  const itemCols = buildItemColumns(scopedConfigs.length > 0 ? scopedConfigs : typeConfigs)
+  const activeConfigs = scopedConfigs.length > 0 ? scopedConfigs : typeConfigs
+  const itemCols = buildItemColumns(activeConfigs)
+  const itemHeaderLabel = buildItemHeaderLabel(activeConfigs)
 
   const itemGroups: { itemName: string; variantLabels: string[] }[] = []
   for (const ic of itemCols) {
@@ -277,15 +309,16 @@ function renderTypeSection(params: RenderSectionParams): void {
   }
   headRow1.push({ content: "LENGTH (mm)", colSpan: activeLengths.length, styles: headStyles })
   for (const k of activeLengths) headRow2.push({ content: k.toUpperCase(), styles: headStyles })
-  headRow1.push({ content: "TOTAL (mm)", rowSpan: 2, styles: headStyles })
+  headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
 
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
+    const heading = itemHeaderLabel(g.itemName)
     if (isVariant) {
-      headRow1.push({ content: g.itemName.toUpperCase(), colSpan: g.variantLabels.length, styles: headStyles })
+      headRow1.push({ content: heading, colSpan: g.variantLabels.length, styles: headStyles })
       for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
     } else {
-      headRow1.push({ content: g.itemName.toUpperCase(), rowSpan: 2, styles: headStyles })
+      headRow1.push({ content: heading, rowSpan: 2, styles: headStyles })
     }
   }
 
@@ -414,6 +447,7 @@ function renderFlatTable(params: RenderFlatParams): void {
   // Union of item columns across every configured type — mixed-type rows need
   // the full column set so each row can fill in just its own items.
   const itemCols = buildItemColumns(typeConfigs)
+  const itemHeaderLabel = buildItemHeaderLabel(typeConfigs)
 
   const itemGroups: { itemName: string; variantLabels: string[] }[] = []
   for (const ic of itemCols) {
@@ -439,15 +473,16 @@ function renderFlatTable(params: RenderFlatParams): void {
   }
   headRow1.push({ content: "LENGTH (mm)", colSpan: activeLengths.length, styles: headStyles })
   for (const k of activeLengths) headRow2.push({ content: k.toUpperCase(), styles: headStyles })
-  headRow1.push({ content: "TOTAL (mm)", rowSpan: 2, styles: headStyles })
+  headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
 
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
+    const heading = itemHeaderLabel(g.itemName)
     if (isVariant) {
-      headRow1.push({ content: g.itemName.toUpperCase(), colSpan: g.variantLabels.length, styles: headStyles })
+      headRow1.push({ content: heading, colSpan: g.variantLabels.length, styles: headStyles })
       for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
     } else {
-      headRow1.push({ content: g.itemName.toUpperCase(), rowSpan: 2, styles: headStyles })
+      headRow1.push({ content: heading, rowSpan: 2, styles: headStyles })
     }
   }
 
