@@ -416,19 +416,58 @@ export default function SettingsPage() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
         {masterItems.map((mi) => {
           const sel = items.some((i) => i.itemId === mi.id)
+          const hit = sel ? items.find((i) => i.itemId === mi.id) : null
           return (
-            <label key={mi.id} style={{
-              display: "flex", alignItems: "center", gap: "var(--space-2)",
+            <div key={mi.id} style={{
+              display: "flex", alignItems: "center", gap: "var(--space-3)",
               padding: "var(--space-2) var(--space-3)",
               background: sel ? "var(--color-primary-soft)" : "var(--color-surface)",
               border: sel ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)", cursor: "pointer",
-              fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 500,
-              color: sel ? "var(--color-primary)" : "var(--color-text-muted)",
+              borderRadius: "var(--radius-md)",
             }}>
-              <input type="checkbox" checked={sel} onChange={() => toggleTypeItem(items, setItems, mi.id, mi.name)} style={{ accentColor: "var(--color-primary)" }} />
-              {mi.name}
-            </label>
+              <label style={{
+                display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer",
+                fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 500,
+                color: sel ? "var(--color-primary)" : "var(--color-text-muted)",
+              }}>
+                <input type="checkbox" checked={sel} onChange={() => toggleTypeItem(items, setItems, mi.id, mi.name)} style={{ accentColor: "var(--color-primary)" }} />
+                {mi.name}
+              </label>
+              {/* Plate flags travel with the item selection so the user can
+                  tick them in one place. Disabled until the item itself is
+                  selected. They edit the same fields as the per-item card
+                  below — either surface works. */}
+              <label style={{
+                display: "flex", alignItems: "center", gap: 4, cursor: sel ? "pointer" : "not-allowed",
+                opacity: sel ? 1 : 0.4,
+                fontFamily: "var(--font-body)", fontSize: "0.6875rem",
+                color: "var(--color-text-muted)", whiteSpace: "nowrap",
+              }}>
+                <input
+                  type="checkbox"
+                  disabled={!sel}
+                  checked={!!hit?.withPlate}
+                  onChange={() => sel && toggleTypeItemPlate(items, setItems, mi.id, "withPlate")}
+                  style={{ accentColor: "var(--color-primary)" }}
+                />
+                W/Plate
+              </label>
+              <label style={{
+                display: "flex", alignItems: "center", gap: 4, cursor: sel ? "pointer" : "not-allowed",
+                opacity: sel ? 1 : 0.4,
+                fontFamily: "var(--font-body)", fontSize: "0.6875rem",
+                color: "var(--color-text-muted)", whiteSpace: "nowrap",
+              }}>
+                <input
+                  type="checkbox"
+                  disabled={!sel}
+                  checked={!!hit?.withoutPlate}
+                  onChange={() => sel && toggleTypeItemPlate(items, setItems, mi.id, "withoutPlate")}
+                  style={{ accentColor: "var(--color-primary)" }}
+                />
+                W/o Plate
+              </label>
+            </div>
           )
         })}
       </div>
