@@ -178,9 +178,14 @@ export default function ReviewPage() {
   }
 
   const handleGenerate = useCallback(() => {
+    // Empty mapping-required cells used to block generation. Now we just
+    // warn the user once and let them proceed — the persistent banner at
+    // the top already lists how many cells are still empty.
     if (mappingMissingCount > 0) {
-      alert(`${mappingMissingCount} required cells are empty (per Mapping.xlsx). Please fill them before generating PDFs.`)
-      return
+      const proceed = window.confirm(
+        `${mappingMissingCount} required cell${mappingMissingCount !== 1 ? "s are" : " is"} still empty (per Mapping.xlsx). The PDF will be generated with those cells blank. Continue?`
+      )
+      if (!proceed) return
     }
     setGenerating(true)
     const grouped: Record<string, typeof rowsWithMapping> = {}
@@ -265,16 +270,16 @@ export default function ReviewPage() {
         Total = sum of all length columns (auto). <span style={{ color: "var(--color-text-faint)" }}>Ctrl+Enter: generate | Ctrl+E: export | Ctrl+P: print</span>
       </p>
 
-      {/* Mapping validation banner */}
+      {/* Mapping validation banner — warning only, doesn't block generation. */}
       {mappingMissingCount > 0 && (
         <div className="animate-fade-in-down" style={{
           padding: "var(--space-3) var(--space-4)", marginBottom: "var(--space-4)",
-          background: "var(--color-error-soft)", borderLeft: "3px solid var(--color-error)",
+          background: "var(--color-warning-soft)", borderLeft: "3px solid var(--color-warning)",
           borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text)",
           display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap",
         }}>
-          <strong style={{ color: "var(--color-error)" }}>{mappingMissingCount} required cell{mappingMissingCount !== 1 ? "s" : ""}</strong>
-          are empty per the uploaded Mapping.xlsx. Fill the red-highlighted cells below before generating PDFs.
+          <strong style={{ color: "var(--color-warning)" }}>{mappingMissingCount} required cell{mappingMissingCount !== 1 ? "s are" : " is"}</strong>
+          empty per the uploaded Mapping.xlsx — look for the orange-highlighted, dashed-outline cells below. You can still generate PDFs with them blank; you&apos;ll be asked to confirm.
         </div>
       )}
 

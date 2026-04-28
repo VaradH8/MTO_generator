@@ -14,7 +14,7 @@ import StatusBadge from "@/components/StatusBadge"
 import EmptyState from "@/components/EmptyState"
 import SupportTable from "@/components/SupportTable"
 import { LENGTH_KEYS } from "@/types/support"
-import type { SupportRow, LengthKey, GroupedSupports, SupportTypeConfig, TypeMapping } from "@/types/support"
+import type { SupportRow, LengthKey, GroupedSupports, SupportTypeConfig, TypeItemConfig, TypeMapping, ItemVariant, MasterTypeConfig, MasterTypeItem } from "@/types/support"
 
 interface PdfVersion {
   id: string
@@ -41,7 +41,7 @@ export default function ProjectDetailPage() {
   const { projects, updateProject, getTypeConfigs } = useProjects()
   const { getProjectTable, saveProjectTable } = useProjectTables()
   const { user } = useAuth()
-  const { pdfConfig } = useSettings()
+  const { pdfConfig, masterItems, masterTypes } = useSettings()
   const pdfLogos = useMemo(() => ({
     left: pdfConfig.leftLogoDataUrl || undefined,
     right: pdfConfig.rightLogoDataUrl || undefined,
@@ -116,6 +116,19 @@ export default function ProjectDetailPage() {
   // server so it survives reloads and shows up for every user.
   const [pdfVersions, setPdfVersions] = useState<PdfVersion[]>([])
   const [versionDownloading, setVersionDownloading] = useState<string | null>(null)
+
+  // ── Configured-types editor (inline view + edit + delete on this page) ──
+  // index === -1 means "adding a new type"; otherwise it indexes into
+  // project.supportTypes. Closed when null.
+  interface EditingTypeState {
+    index: number
+    typeName: string
+    classification: "internal" | "external"
+    items: TypeItemConfig[]
+  }
+  const [editingType, setEditingType] = useState<EditingTypeState | null>(null)
+  const [confirmDeleteTypeIdx, setConfirmDeleteTypeIdx] = useState<number | null>(null)
+  const [typeEditorError, setTypeEditorError] = useState("")
 
   const refreshVersions = useCallback(async () => {
     if (!projectId) return
@@ -260,6 +273,77 @@ export default function ProjectDetailPage() {
   const handleRowsChange = useCallback((newRows: SupportRow[]) => {
     saveProjectTable(projectId, newRows)
   }, [projectId, saveProjectTable])
+
+  // ── Configured types: edit / delete / add handlers ─────────────────────
+  // All writes go through updateProject — same path the projects-list
+  // page uses, so existing optimistic-update + server-PUT flow applies.
+  const projectTypes: SupportTypeConfig[] = useMemo(() => project?.supportTypes ?? [], [project?.supportTypes])
+
+  const startEditType = useCallback((idx: number) => {
+    const t = projectTypes[idx]
+    if (!t) return
+    setTypeEditorError("")
+    setEditingType({
+      index: idx,
+      typeName: t.typeName,
+      classification: t.classification ?? "internal",
+      items: t.items.map((i) => ({
+        ...i,
+        variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
+      })),
+    })
+  }, [projectTypes])
+
+  const startAddType = useCallback((template?: MasterTypeConfig) => {
+    setTypeEditorError("")
+    setEditingType({
+      index: -1,
+      typeName: template?.typeName ?? "",
+      classification: template?.classification ?? "internal",
+      items: template
+        ? template.items.map((i: MasterTypeItem) => ({
+            itemId: i.itemId,
+            itemName: i.itemName,
+            qty: i.qty,
+            make: i.make,
+            model: i.model,
+            withPlate: i.withPlate,
+            withoutPlate: i.withoutPlate,
+            variants: i.variants ? i.variants.map((v: ItemVariant) => ({ ...v })) : undefined,
+          }))
+        : [],
+    })
+  }, [])
+
+  const saveEditingType = useCallback(() => {
+    if (!editingType) return
+    const name = editingType.typeName.trim()
+    if (!name) { setTypeEditorError("Type name is required."); return }
+    // Disallow duplicate (typeName + classification) within this project,
+    // but allow the same name in a different classification.
+    const dup = projectTypes.findIndex((t, i) =>
+      i !== editingType.index &&
+      t.typeName.trim().toLowerCase() === name.toLowerCase() &&
+      (t.classification ?? "internal") === editingType.classification
+    )
+    if (dup !== -1) { setTypeEditorError(`Another ${editingType.classification} type "${name}" already exists in this project.`); return }
+    const next: SupportTypeConfig = {
+      typeName: name,
+      classification: editingType.classification,
+      items: editingType.items,
+    }
+    const list = editingType.index === -1
+      ? [...projectTypes, next]
+      : projectTypes.map((t, i) => i === editingType.index ? next : t)
+    updateProject(projectId, { supportTypes: list })
+    setEditingType(null)
+  }, [editingType, projectTypes, updateProject, projectId])
+
+  const deleteType = useCallback((idx: number) => {
+    const list = projectTypes.filter((_, i) => i !== idx)
+    updateProject(projectId, { supportTypes: list })
+    setConfirmDeleteTypeIdx(null)
+  }, [projectTypes, updateProject, projectId])
 
   const toggleRowSelect = useCallback((idx: number) => {
     setSelectedRows((prev) => {
@@ -459,6 +543,82 @@ export default function ProjectDetailPage() {
           {mappingUploadMsg}
         </div>
       )}
+
+      {/* Configured Types — view + edit + delete inline. */}
+      <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)", flexWrap: "wrap", gap: "var(--space-3)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>
+            Configured Types ({projectTypes.length})
+          </h2>
+          <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
+            {masterTypes.length > 0 && (
+              <select
+                onChange={(e) => {
+                  const id = e.target.value
+                  e.target.value = ""
+                  if (!id) return
+                  const mt = masterTypes.find((t) => t.id === id)
+                  if (mt) startAddType(mt)
+                }}
+                defaultValue=""
+                style={{
+                  height: 32, padding: "0 var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.8125rem",
+                  background: "var(--color-surface)", border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)", cursor: "pointer", color: "var(--color-text)",
+                }}
+              >
+                <option value="">+ Add from Master…</option>
+                {masterTypes.map((mt) => (
+                  <option key={mt.id} value={mt.id}>{mt.typeName} ({mt.classification ?? "internal"})</option>
+                ))}
+              </select>
+            )}
+            <ActionButton variant="primary" size="sm" onClick={() => startAddType()}>+ Add Custom Type</ActionButton>
+          </div>
+        </div>
+
+        {projectTypes.length === 0 ? (
+          <p style={{ fontFamily: "var(--font-body)", fontSize: "0.875rem", color: "var(--color-text-faint)", textAlign: "center", padding: "var(--space-4)" }}>
+            No types configured for this project yet. Add one from a master template or create a custom type above.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            {projectTypes.map((t, idx) => {
+              const itemSummary = t.items.map((i) => {
+                if (i.variants && i.variants.length > 0) {
+                  const variantStr = i.variants.map((v) => `${v.label}:${v.qty || "—"}`).join("/")
+                  return `${i.itemName} (${variantStr})`
+                }
+                return `${i.itemName}:${i.qty || "—"}`
+              }).join(" · ")
+              const isConfirming = confirmDeleteTypeIdx === idx
+              return (
+                <div key={`${t.typeName}-${idx}`} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-3) var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)", flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 700, color: "var(--color-text)", minWidth: 60 }}>{t.typeName}</span>
+                  <StatusBadge variant={(t.classification ?? "internal") === "external" ? "warning" : "info"}>
+                    {t.classification ?? "internal"}
+                  </StatusBadge>
+                  <span style={{ flex: 1, minWidth: 200, fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
+                    {itemSummary || <em style={{ color: "var(--color-text-faint)" }}>(no items)</em>}
+                  </span>
+                  {isConfirming ? (
+                    <>
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)" }}>Delete this type?</span>
+                      <ActionButton variant="destructive" size="sm" onClick={() => deleteType(idx)}>Confirm</ActionButton>
+                      <ActionButton variant="ghost" size="sm" onClick={() => setConfirmDeleteTypeIdx(null)}>Cancel</ActionButton>
+                    </>
+                  ) : (
+                    <>
+                      <ActionButton variant="secondary" size="sm" onClick={() => startEditType(idx)}>Edit</ActionButton>
+                      <ActionButton variant="ghost" size="sm" onClick={() => setConfirmDeleteTypeIdx(idx)}>Delete</ActionButton>
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Generated PDF — pinned at the top so it is visible on every reopen. */}
       {(hasPdfs || pdfVersions.length > 0) && (
@@ -977,6 +1137,210 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ─── Configured Types — Edit / Add Modal ─── */}
+      {editingType && (() => {
+        const inputStyle: React.CSSProperties = {
+          width: "100%", height: 32, padding: "0 var(--space-3)",
+          fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text)",
+          background: "var(--color-surface)", border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-md)", outline: "none", boxSizing: "border-box",
+        }
+        const cellStyle: React.CSSProperties = { ...inputStyle, height: 28, fontSize: "0.75rem" }
+        const labelStyle: React.CSSProperties = {
+          display: "block", fontFamily: "var(--font-display)", fontSize: "0.625rem",
+          fontWeight: 600, color: "var(--color-text-muted)", textTransform: "uppercase",
+          letterSpacing: "0.02em", marginBottom: 2,
+        }
+        const setItems = (next: TypeItemConfig[]) => setEditingType((prev) => prev ? { ...prev, items: next } : prev)
+        const addExistingItem = (id: string) => {
+          const mi = masterItems.find((m) => m.id === id)
+          if (!mi) return
+          if (editingType.items.some((it) => it.itemId === mi.id)) return
+          setItems([...editingType.items, { itemId: mi.id, itemName: mi.name, qty: "", make: "", model: "" }])
+        }
+        const updateItem = (idx: number, patch: Partial<TypeItemConfig>) => {
+          setItems(editingType.items.map((it, i) => i === idx ? { ...it, ...patch } : it))
+        }
+        const removeItem = (idx: number) => setItems(editingType.items.filter((_, i) => i !== idx))
+        const toggleVariants = (idx: number) => {
+          const it = editingType.items[idx]
+          const next = it.variants && it.variants.length > 0
+            ? undefined
+            : [{ label: "", qty: "" }] as ItemVariant[]
+          updateItem(idx, { variants: next, qty: next ? "" : it.qty })
+        }
+        const updateVariant = (idx: number, vIdx: number, patch: Partial<ItemVariant>) => {
+          const it = editingType.items[idx]
+          const vs = (it.variants || []).map((v, k) => k === vIdx ? { ...v, ...patch } : v)
+          updateItem(idx, { variants: vs })
+        }
+        const addVariant = (idx: number) => {
+          const it = editingType.items[idx]
+          updateItem(idx, { variants: [...(it.variants || []), { label: "", qty: "" } as ItemVariant] })
+        }
+        const removeVariant = (idx: number, vIdx: number) => {
+          const it = editingType.items[idx]
+          const vs = (it.variants || []).filter((_, k) => k !== vIdx)
+          updateItem(idx, { variants: vs.length > 0 ? vs : undefined })
+        }
+        const availableMasterItems = masterItems.filter((mi) => !editingType.items.some((it) => it.itemId === mi.id))
+        return (
+          <div
+            className="animate-fade-in"
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 320 }}
+            onClick={() => setEditingType(null)}
+          >
+            <div
+              className="animate-scale-in"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "var(--color-surface)", borderRadius: "var(--radius-lg)",
+                padding: "var(--space-6)", boxShadow: "var(--shadow-xl)",
+                maxWidth: 880, width: "92%", maxHeight: "85vh", overflowY: "auto",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-4)" }}>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 700, color: "var(--color-text)" }}>
+                  {editingType.index === -1 ? "Add Type" : `Edit Type — ${editingType.typeName || "(unnamed)"}`}
+                </h2>
+                <button onClick={() => setEditingType(null)} style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", color: "var(--color-text-faint)", background: "none", border: "none", cursor: "pointer" }}>×</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "var(--space-4)", alignItems: "end", marginBottom: "var(--space-4)" }}>
+                <div>
+                  <label style={labelStyle}>Type Name</label>
+                  <input
+                    value={editingType.typeName}
+                    onChange={(e) => { setEditingType({ ...editingType, typeName: e.target.value }); setTypeEditorError("") }}
+                    placeholder="e.g. RF01"
+                    style={{ ...inputStyle, height: 36, maxWidth: 240, fontWeight: 600 }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "var(--space-3)", paddingBottom: 4 }}>
+                  {(["internal", "external"] as const).map((opt) => (
+                    <label key={opt} style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                      <input
+                        type="radio"
+                        checked={editingType.classification === opt}
+                        onChange={() => setEditingType({ ...editingType, classification: opt })}
+                        style={{ accentColor: "var(--color-primary)" }}
+                      />
+                      <span style={{ textTransform: "capitalize" }}>{opt}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <label style={{ ...labelStyle, marginBottom: "var(--space-2)" }}>Items</label>
+              {editingType.items.length === 0 ? (
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-faint)", margin: "var(--space-2) 0 var(--space-3)" }}>
+                  No items yet. Add one below.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
+                  {editingType.items.map((it, idx) => {
+                    const hasVariants = !!it.variants && it.variants.length > 0
+                    return (
+                      <div key={`${it.itemId}-${idx}`} style={{ padding: "var(--space-3)", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: hasVariants ? "1fr auto auto auto auto" : "1fr 70px 1fr 1fr auto auto auto", gap: "var(--space-2)", alignItems: "end" }}>
+                          <div>
+                            <label style={labelStyle}>Item</label>
+                            <div style={{ fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-text)", paddingTop: 4 }}>{it.itemName}</div>
+                          </div>
+                          {!hasVariants && (
+                            <div>
+                              <label style={labelStyle}>Qty</label>
+                              <input type="number" min="0" value={it.qty} onChange={(e) => updateItem(idx, { qty: e.target.value })} placeholder="0" style={{ ...cellStyle, textAlign: "center" }} />
+                            </div>
+                          )}
+                          {!hasVariants && (
+                            <div>
+                              <label style={labelStyle}>Make</label>
+                              <input value={it.make} onChange={(e) => updateItem(idx, { make: e.target.value })} placeholder="Make" style={cellStyle} />
+                            </div>
+                          )}
+                          {!hasVariants && (
+                            <div>
+                              <label style={labelStyle}>Model</label>
+                              <input value={it.model} onChange={(e) => updateItem(idx, { model: e.target.value })} placeholder="Model" style={cellStyle} />
+                            </div>
+                          )}
+                          <label style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", whiteSpace: "nowrap", paddingBottom: 6 }}>
+                            <input type="checkbox" checked={!!it.withPlate} onChange={() => updateItem(idx, { withPlate: !it.withPlate })} />
+                            With plate
+                          </label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", whiteSpace: "nowrap", paddingBottom: 6 }}>
+                            <input type="checkbox" checked={!!it.withoutPlate} onChange={() => updateItem(idx, { withoutPlate: !it.withoutPlate })} />
+                            W/o plate
+                          </label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: "var(--font-body)", fontSize: "0.6875rem", color: "var(--color-text-muted)", whiteSpace: "nowrap", paddingBottom: 6 }}>
+                            <input type="checkbox" checked={hasVariants} onChange={() => toggleVariants(idx)} />
+                            Variants
+                          </label>
+                          <button onClick={() => removeItem(idx)} style={{ background: "none", border: "none", color: "var(--color-error)", fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer", paddingBottom: 6 }}>Remove</button>
+                        </div>
+                        {hasVariants && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)", paddingLeft: "var(--space-3)", borderLeft: "2px solid var(--color-primary-soft)", marginTop: "var(--space-2)" }}>
+                            {(it.variants || []).map((v, vIdx) => (
+                              <div key={vIdx} style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr 1fr auto", gap: "var(--space-2)", alignItems: "end" }}>
+                                <div>
+                                  <label style={labelStyle}>Label</label>
+                                  <input value={v.label} onChange={(e) => updateVariant(idx, vIdx, { label: e.target.value })} placeholder="e.g. Z" style={cellStyle} />
+                                </div>
+                                <div>
+                                  <label style={labelStyle}>Qty</label>
+                                  <input type="number" min="0" value={v.qty} onChange={(e) => updateVariant(idx, vIdx, { qty: e.target.value })} placeholder="0" style={{ ...cellStyle, textAlign: "center" }} />
+                                </div>
+                                <div>
+                                  <label style={labelStyle}>Make</label>
+                                  <input value={v.make || ""} onChange={(e) => updateVariant(idx, vIdx, { make: e.target.value })} placeholder="Make" style={cellStyle} />
+                                </div>
+                                <div>
+                                  <label style={labelStyle}>Model</label>
+                                  <input value={v.model || ""} onChange={(e) => updateVariant(idx, vIdx, { model: e.target.value })} placeholder="Model" style={cellStyle} />
+                                </div>
+                                <button onClick={() => removeVariant(idx, vIdx)} style={{ background: "none", border: "none", color: "var(--color-error)", cursor: "pointer", paddingBottom: 6, fontFamily: "var(--font-display)", fontSize: "0.75rem" }}>×</button>
+                              </div>
+                            ))}
+                            <ActionButton variant="ghost" size="sm" onClick={() => addVariant(idx)}>+ Add variant</ActionButton>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {availableMasterItems.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
+                  <label style={{ ...labelStyle, marginBottom: 0 }}>Add item</label>
+                  <select
+                    onChange={(e) => { addExistingItem(e.target.value); e.target.value = "" }}
+                    defaultValue=""
+                    style={{ ...inputStyle, maxWidth: 280, cursor: "pointer", height: 30, fontSize: "0.75rem" }}
+                  >
+                    <option value="">Select item from master list…</option>
+                    {availableMasterItems.map((mi) => (
+                      <option key={mi.id} value={mi.id}>{mi.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {typeEditorError && (
+                <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginBottom: "var(--space-3)" }}>
+                  {typeEditorError}
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-3)" }}>
+                <ActionButton variant="ghost" size="sm" onClick={() => setEditingType(null)}>Cancel</ActionButton>
+                <ActionButton variant="primary" size="sm" onClick={saveEditingType}>Save</ActionButton>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
