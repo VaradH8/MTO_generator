@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx"
+import * as XLSX from "xlsx-js-style"
 import JSZip from "jszip"
 import { LENGTH_KEYS } from "@/types/support"
 import type { SupportRow, SupportTypeConfig, GroupedSupports, TypeMapping } from "@/types/support"
@@ -20,13 +20,65 @@ type ProjectMapping = Record<string, TypeMapping>
 
 /**
  * Excel exporter that mirrors the PDF Support Schedule layout cell-for-cell:
- * the same two-row header (with merged parent cells over LENGTH and over each
- * variant item's subcolumns), the same column order, and the same cell
- * contents (qty only — model+material lives in the headers). Rendered as a
- * .xlsx blob ready to hand to the browser's download flow. No styling
- * (community xlsx package doesn't support fills/fonts), but the structure is
- * a 1:1 match so the result reads the same as the PDF.
+ *   - Row 0 is reserved for the top-corner logos (anchored via OOXML drawing
+ *     parts injected after sheetjs writes the workbook — see injectLogos).
+ *   - Title + subtitle + two header rows below, all styled to match the PDF
+ *     (primary blue header fills, white bold header text, light borders,
+ *     alternating row bands in the body).
+ *   - Body cells carry just the quantity; material+model lives in the
+ *     header column labels exactly like the PDF.
+ *
+ * Styling is provided by `xlsx-js-style`, a drop-in fork of the community
+ * `xlsx` package that adds the `s` (style) property on cells so we can ship
+ * fills, fonts, alignment, and borders without manually editing styles.xml.
  */
+
+/** Color palette mirroring the PDF tokens (PRIMARY/DARK/MUTED/BORDER) so
+ *  both surfaces look like they came out of the same template. ARGB hex —
+ *  Excel ignores the AA. */
+const COLOR = {
+  primary: "1F3CA8",
+  dark: "0D1530",
+  muted: "4A5478",
+  border: "C9D2E4",
+  rowAlt: "FAFBFE",
+  white: "FFFFFF",
+}
+
+type CellStyle = NonNullable<XLSX.CellObject["s"]>
+
+const TITLE_STYLE: CellStyle = {
+  font: { name: "Calibri", sz: 16, bold: true, color: { rgb: COLOR.dark } },
+  alignment: { horizontal: "center", vertical: "center" },
+}
+const SUBTITLE_STYLE: CellStyle = {
+  font: { name: "Calibri", sz: 10, color: { rgb: COLOR.muted } },
+  alignment: { horizontal: "center", vertical: "center" },
+}
+const HEADER_STYLE: CellStyle = {
+  font: { name: "Calibri", sz: 9, bold: true, color: { rgb: COLOR.white } },
+  fill: { patternType: "solid", fgColor: { rgb: COLOR.primary } },
+  alignment: { horizontal: "center", vertical: "center", wrapText: true },
+  border: {
+    top: { style: "thin", color: { rgb: COLOR.border } },
+    bottom: { style: "thin", color: { rgb: COLOR.border } },
+    left: { style: "thin", color: { rgb: COLOR.border } },
+    right: { style: "thin", color: { rgb: COLOR.border } },
+  },
+}
+function bodyStyle(zebra: boolean): CellStyle {
+  return {
+    font: { name: "Calibri", sz: 9, color: { rgb: COLOR.dark } },
+    alignment: { horizontal: "center", vertical: "center" },
+    fill: zebra ? { patternType: "solid", fgColor: { rgb: COLOR.rowAlt } } : undefined,
+    border: {
+      top: { style: "thin", color: { rgb: COLOR.border } },
+      bottom: { style: "thin", color: { rgb: COLOR.border } },
+      left: { style: "thin", color: { rgb: COLOR.border } },
+      right: { style: "thin", color: { rgb: COLOR.border } },
+    },
+  }
+}
 
 interface BuildSchemaParams {
   rows: SupportRow[]
@@ -152,33 +204,62 @@ interface BuildSheetParams {
   title: string
   subtitle: string
   schema: SheetSchema
+  /** True when the workbook has at least one usable logo. The logo row stays
+   *  in the layout regardless so the title/header positions don't drift
+   *  between exports, but the row is sized smaller when there's nothing to
+   *  put there. */
+  hasLogo: boolean
 }
 
-/** Convert the schema to an XLSX worksheet with merged header cells. */
-function buildSheet({ title, subtitle, schema }: BuildSheetParams): XLSX.WorkSheet {
+/** Cell address helper — XLSX uses A1-style references, indexed (row, col). */
+function addr(row: number, col: number): string {
+  return XLSX.utils.encode_cell({ r: row, c: col })
+}
+
+/** Apply a style to a single cell (creating it if missing). */
+function styleCell(ws: XLSX.WorkSheet, row: number, col: number, style: CellStyle): void {
+  const ref = addr(row, col)
+  const cell = (ws[ref] as XLSX.CellObject | undefined) ?? { t: "s", v: "" }
+  cell.s = style
+  ;(ws as Record<string, unknown>)[ref] = cell
+}
+
+/** Convert the schema to an XLSX worksheet with merged header cells, styled
+ *  to match the PDF (primary header fill, bordered body, alternating rows).
+ *  Row 0 is the logo row — kept tall enough to seat the 25mm × 18mm logo
+ *  without overlapping the title text below. */
+function buildSheet({ title, subtitle, schema, hasLogo }: BuildSheetParams): XLSX.WorkSheet {
   const { headRow1, headRow2, body, width } = schema
+
+  // Row layout (zero-indexed):
+  //   0 — logo strip (empty cells; row height ~22mm to seat both logos)
+  //   1 — title (merged across every column)
+  //   2 — subtitle (merged)
+  //   3 — header row 1
+  //   4 — header row 2
+  //   5+ — body
+  const LOGO_ROW = 0
+  const TITLE_ROW = 1
+  const SUBTITLE_ROW = 2
+  const H1_ROW = 3
+  const H2_ROW = 4
+  const BODY_START_ROW = 5
+
+  const merges: XLSX.Range[] = []
+
+  const logoRow: string[] = new Array(width).fill("")
+  const titleRow: string[] = [title, ...new Array(Math.max(0, width - 1)).fill("")]
+  const subtitleRow: string[] = [subtitle, ...new Array(Math.max(0, width - 1)).fill("")]
+  if (width > 1) {
+    merges.push({ s: { r: LOGO_ROW, c: 0 }, e: { r: LOGO_ROW, c: width - 1 } })
+    merges.push({ s: { r: TITLE_ROW, c: 0 }, e: { r: TITLE_ROW, c: width - 1 } })
+    merges.push({ s: { r: SUBTITLE_ROW, c: 0 }, e: { r: SUBTITLE_ROW, c: width - 1 } })
+  }
 
   // Expand headRow1 spans into a flat row aligned to the workbook grid. Cells
   // covered by a colSpan are filled with "" so the array is rectangular, and
   // we record merge ranges separately.
   const flatHead1: string[] = []
-  const merges: XLSX.Range[] = []
-  // Title spans every column; subtitle too.
-  const TITLE_ROW = 0
-  const SUBTITLE_ROW = 1
-  const H1_ROW = 2
-  const H2_ROW = 3
-  const BODY_START_ROW = 4
-
-  // Title row
-  const titleRow: string[] = [title, ...new Array(Math.max(0, width - 1)).fill("")]
-  // Subtitle row
-  const subtitleRow: string[] = [subtitle, ...new Array(Math.max(0, width - 1)).fill("")]
-  if (width > 1) {
-    merges.push({ s: { r: TITLE_ROW, c: 0 }, e: { r: TITLE_ROW, c: width - 1 } })
-    merges.push({ s: { r: SUBTITLE_ROW, c: 0 }, e: { r: SUBTITLE_ROW, c: width - 1 } })
-  }
-
   let col = 0
   for (const cell of headRow1) {
     flatHead1.push(cell.content)
@@ -192,20 +273,15 @@ function buildSheet({ title, subtitle, schema }: BuildSheetParams): XLSX.WorkShe
     }
     col += span
   }
-
-  // headRow2 is already flat (one entry per real column); replace nulls with
-  // "" so XLSX doesn't choke. The rowSpan merges above mean those "" cells
-  // are visually covered.
   const flatHead2: string[] = headRow2.map((v) => v ?? "")
 
-  const data: string[][] = [titleRow, subtitleRow, flatHead1, flatHead2, ...body]
+  const data: string[][] = [logoRow, titleRow, subtitleRow, flatHead1, flatHead2, ...body]
   const ws = XLSX.utils.aoa_to_sheet(data)
   ws["!merges"] = merges
 
-  // Auto-ish column widths — meta columns narrow, item/header columns wider.
+  // Column widths — meta columns narrow, header-text columns wider.
   const cols: { wch: number }[] = []
   for (let i = 0; i < width; i++) {
-    // Pick the longest header text in either head row to seed the width.
     const h1 = flatHead1[i] ?? ""
     const h2 = flatHead2[i] ?? ""
     const headerLen = Math.max(h1.length, h2.length)
@@ -213,8 +289,34 @@ function buildSheet({ title, subtitle, schema }: BuildSheetParams): XLSX.WorkShe
   }
   ws["!cols"] = cols
 
-  // Freeze the title + subtitle + two header rows.
-  ws["!freeze"] = { xSplit: 0, ySplit: BODY_START_ROW }
+  // Row heights — taller logo + title rows, normal everywhere else.
+  const rows: { hpt?: number }[] = []
+  rows[LOGO_ROW] = { hpt: hasLogo ? 62 : 6 }
+  rows[TITLE_ROW] = { hpt: 24 }
+  rows[SUBTITLE_ROW] = { hpt: 16 }
+  rows[H1_ROW] = { hpt: 22 }
+  rows[H2_ROW] = { hpt: 22 }
+  ws["!rows"] = rows
+
+  // ── Styling ──
+  styleCell(ws, TITLE_ROW, 0, TITLE_STYLE)
+  styleCell(ws, SUBTITLE_ROW, 0, SUBTITLE_STYLE)
+  for (let c = 0; c < width; c++) {
+    styleCell(ws, H1_ROW, c, HEADER_STYLE)
+    styleCell(ws, H2_ROW, c, HEADER_STYLE)
+  }
+  for (let r = 0; r < body.length; r++) {
+    const zebra = r % 2 === 1
+    const style = bodyStyle(zebra)
+    for (let c = 0; c < width; c++) {
+      styleCell(ws, BODY_START_ROW + r, c, style)
+    }
+  }
+
+  // Freeze under the two header rows so the schema stays visible while
+  // scrolling through hundreds of rows. SheetJS reads `!views` for frozen
+  // pane configuration; the legacy `!freeze` property had no effect.
+  ;(ws as Record<string, unknown>)["!views"] = [{ state: "frozen", xSplit: 0, ySplit: BODY_START_ROW }]
 
   return ws
 }
@@ -431,6 +533,10 @@ async function injectLogosIntoXlsx(blob: Blob, logos: PdfLogos | undefined, shee
   })
 }
 
+function hasUsableLogo(logos?: PdfLogos): boolean {
+  return !!(parseLogoDataUrl(logos?.left) || parseLogoDataUrl(logos?.right))
+}
+
 /** Per-type Excel — one sheet, same layout as a per-type PDF. */
 export async function generateExcel(
   type: string,
@@ -442,7 +548,7 @@ export async function generateExcel(
 ): Promise<Blob> {
   const schema = buildSchema({ rows, typeConfigs, scopeToRows: true }, mapping)
   const subtitle = `${projectName ? `${projectName} | ` : ""}${rows.length} supports`
-  const ws = buildSheet({ title: `Support Schedule — ${type}`, subtitle, schema })
+  const ws = buildSheet({ title: `Support Schedule — ${type}`, subtitle, schema, hasLogo: hasUsableLogo(logos) })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, type.slice(0, 31) || "Schedule")
   const blob = workbookToBlob(wb)
@@ -471,7 +577,7 @@ export async function generateCombinedExcel(
     `${allRows.length} supports`,
     typesUsed.length > 0 ? `${typesUsed.length} type${typesUsed.length !== 1 ? "s" : ""}: ${typesUsed.join(", ")}` : null,
   ].filter(Boolean).join(" | ")
-  const ws = buildSheet({ title: "Support Schedule — Combined", subtitle, schema })
+  const ws = buildSheet({ title: "Support Schedule — Combined", subtitle, schema, hasLogo: hasUsableLogo(logos) })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "Combined")
   const blob = workbookToBlob(wb)
@@ -502,7 +608,7 @@ export async function generateSelectionExcel(
     `Selected · ${rows.length} supports`,
     typesUsed.length > 0 ? typesUsed.join(", ") : null,
   ].filter(Boolean).join(" | ")
-  const ws = buildSheet({ title: "Support Schedule — Selection", subtitle, schema })
+  const ws = buildSheet({ title: "Support Schedule — Selection", subtitle, schema, hasLogo: hasUsableLogo(logos) })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "Selection")
   const blob = workbookToBlob(wb)
