@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest) {
 
     // Master types with their items
     const { rows: typeRows } = await pool.query(
-      `SELECT id, type_name, classification, with_plate, without_plate FROM master_types ORDER BY type_name`
+      `SELECT id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty FROM master_types ORDER BY type_name`
     )
     const masterTypes = await Promise.all(
       typeRows.map(async (t: any) => {
@@ -41,8 +41,10 @@ export async function GET(_req: NextRequest) {
           id: t.id,
           typeName: t.type_name,
           classification: t.classification ?? "internal",
-          withPlate: !!t.with_plate,
-          withoutPlate: !!t.without_plate,
+          // Prefer the qty string when set; fall back to the boolean
+          // ("1" if true, "" otherwise) so existing configs keep showing.
+          withPlate: t.with_plate_qty || (t.with_plate ? "1" : ""),
+          withoutPlate: t.without_plate_qty || (t.without_plate ? "1" : ""),
           items: typeItems.map((i: any) => ({
             itemId: i.item_id,
             itemName: i.item_name,
@@ -121,9 +123,12 @@ export async function PUT(req: NextRequest) {
       await client.query(`DELETE FROM master_types`)
       for (const type of masterTypes) {
         const typeId = type.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
+        const wp = String(type.withPlate ?? "")
+        const wop = String(type.withoutPlate ?? "")
         await client.query(
-          `INSERT INTO master_types (id, type_name, classification, with_plate, without_plate) VALUES ($1, $2, $3, $4, $5)`,
-          [typeId, type.typeName, type.classification || "internal", !!type.withPlate, !!type.withoutPlate]
+          `INSERT INTO master_types (id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [typeId, type.typeName, type.classification || "internal", wp !== "", wop !== "", wp, wop]
         )
         if (type.items) {
           for (const item of type.items) {

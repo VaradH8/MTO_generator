@@ -217,21 +217,22 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
   }, [typeConfigs])
 
   const totalCol = useMemo(() => makeTotalCol(projectMapping), [projectMapping])
-  // With Plate / Without Plate derive read-only from the row's type config
-  // — one tick per type lives in Settings / Project Type editor.
+  // With Plate / Without Plate render the type-level qty (or blank) for the
+  // row's matching type — read-only since the source of truth is the type
+  // config in Settings / Project Type editor.
   const plateCols: ColumnDef[] = useMemo(() => {
-    const platesForType = (r: SupportRow): { withPlate: boolean; withoutPlate: boolean } => {
+    const platesForType = (r: SupportRow): { withPlate: string; withoutPlate: string } => {
       const t = r.type.trim().toLowerCase()
       const cls = r.classification ?? "internal"
       const tc =
         typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t && (c.classification ?? "internal") === cls) ||
         typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t)
-      if (!tc) return { withPlate: false, withoutPlate: false }
-      return { withPlate: !!tc.withPlate, withoutPlate: !!tc.withoutPlate }
+      if (!tc) return { withPlate: "", withoutPlate: "" }
+      return { withPlate: tc.withPlate ?? "", withoutPlate: tc.withoutPlate ?? "" }
     }
     return [
-      { key: "withPlate", label: "With Plate", minWidth: 80, align: "center", type: "text", readOnly: true, getValue: (r) => platesForType(r).withPlate ? "Yes" : "" },
-      { key: "withoutPlate", label: "Without Plate", minWidth: 90, align: "center", type: "text", readOnly: true, getValue: (r) => platesForType(r).withoutPlate ? "Yes" : "" },
+      { key: "withPlate", label: "With Plate", minWidth: 80, align: "center", type: "text", readOnly: true, getValue: (r) => platesForType(r).withPlate },
+      { key: "withoutPlate", label: "Without Plate", minWidth: 90, align: "center", type: "text", readOnly: true, getValue: (r) => platesForType(r).withoutPlate },
     ]
   }, [typeConfigs])
   const baseColumns = useMemo(() => [

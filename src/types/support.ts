@@ -58,11 +58,12 @@ export interface MasterTypeConfig {
   typeName: string
   classification: "internal" | "external"
   items: MasterTypeItem[]
-  /** Plate flags now live at the type level (one tick per master type),
-   *  not per item. They drive the per-row "With Plate" / "Without Plate"
-   *  columns in the PDF and the on-screen table. */
-  withPlate?: boolean
-  withoutPlate?: boolean
+  /** Plate quantities at the type level (one pair per master type, not per
+   *  item). Empty string = flag off (column renders blank). Non-empty =
+   *  flag on with that quantity (e.g. "4") — used as the cell value in the
+   *  per-row With Plate / Without Plate columns in the PDF and table. */
+  withPlate?: string
+  withoutPlate?: string
 }
 
 export interface MasterTypeItem {
@@ -100,11 +101,11 @@ export interface SupportTypeConfig {
   typeName: string
   classification: "internal" | "external"
   items: TypeItemConfig[]
-  /** Per-type plate flags — one pair of ticks per support type. Drive the
-   *  row-level "With Plate" / "Without Plate" PDF + table columns via the
-   *  row.type → typeConfig lookup. */
-  withPlate?: boolean
-  withoutPlate?: boolean
+  /** Per-type plate quantities — one pair per support type. Empty string =
+   *  off; non-empty = on with that qty rendered in the row-level "With
+   *  Plate" / "Without Plate" PDF + table columns. */
+  withPlate?: string
+  withoutPlate?: string
 }
 
 export interface ItemConfig {

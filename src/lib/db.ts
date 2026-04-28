@@ -29,10 +29,18 @@ async function runMigrations(): Promise<void> {
     `ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     // Plate flags moved to the type level (one pair per type, not per item).
+    // Boolean columns kept for backward compat — superseded by the qty TEXT
+    // columns below, which are the new source of truth.
     `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    // Plate qty TEXT columns: empty string = off, non-empty = displayed
+    // quantity for the row-level With Plate / Without Plate column.
+    `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS with_plate_qty TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS without_plate_qty TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS with_plate_qty TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS without_plate_qty TEXT NOT NULL DEFAULT ''`,
     // One-time backfill: lift any per-item plate ticks up to the type level
     // so existing configs aren't visually reset to "all false". Gated by a
     // settings-row flag so subsequent ensureMigrations calls don't re-run
@@ -47,6 +55,24 @@ async function runMigrations(): Promise<void> {
            with_plate = COALESCE((SELECT BOOL_OR(with_plate) FROM project_type_items WHERE project_support_type_id = pst.id), FALSE),
            without_plate = COALESCE((SELECT BOOL_OR(without_plate) FROM project_type_items WHERE project_support_type_id = pst.id), FALSE);
          INSERT INTO settings (key, value) VALUES ('migration.type_plate_flags_v1', 'done')
+           ON CONFLICT (key) DO NOTHING;
+       END IF;
+     END $$`,
+    // Once-only backfill from BOOLEAN flag → qty TEXT. TRUE rows seed "1"
+    // so the previously-ticked type stays "on" with a placeholder quantity
+    // the user can adjust. Gated by a separate settings flag.
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM settings WHERE key = 'migration.type_plate_qty_v1') THEN
+         UPDATE master_types SET with_plate_qty = '1'
+           WHERE with_plate = TRUE AND COALESCE(with_plate_qty, '') = '';
+         UPDATE master_types SET without_plate_qty = '1'
+           WHERE without_plate = TRUE AND COALESCE(without_plate_qty, '') = '';
+         UPDATE project_support_types SET with_plate_qty = '1'
+           WHERE with_plate = TRUE AND COALESCE(with_plate_qty, '') = '';
+         UPDATE project_support_types SET without_plate_qty = '1'
+           WHERE without_plate = TRUE AND COALESCE(without_plate_qty, '') = '';
+         INSERT INTO settings (key, value) VALUES ('migration.type_plate_qty_v1', 'done')
            ON CONFLICT (key) DO NOTHING;
        END IF;
      END $$`,

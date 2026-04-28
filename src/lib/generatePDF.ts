@@ -33,17 +33,17 @@ const PRE_LENGTH: { key: keyof SupportRow | "withPlate" | "withoutPlate"; label:
   { key: "withoutPlate", label: "WITHOUT PLATE" },
 ]
 
-/** Resolve the type-level plate flags for a row by matching its type +
+/** Resolve the type-level plate quantities for a row by matching its type +
  *  classification against the project's typeConfigs. Falls back to a
- *  classification-agnostic match, then to no flags. */
-function platesForType(typeConfigs: SupportTypeConfig[], row: SupportRow): { withPlate: boolean; withoutPlate: boolean } {
+ *  classification-agnostic match, then to empty strings (column blank). */
+function platesForType(typeConfigs: SupportTypeConfig[], row: SupportRow): { withPlate: string; withoutPlate: string } {
   const t = row.type.trim().toLowerCase()
   const cls = row.classification ?? "internal"
   const tc =
     typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t && (c.classification ?? "internal") === cls) ||
     typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t)
-  if (!tc) return { withPlate: false, withoutPlate: false }
-  return { withPlate: !!tc.withPlate, withoutPlate: !!tc.withoutPlate }
+  if (!tc) return { withPlate: "", withoutPlate: "" }
+  return { withPlate: tc.withPlate ?? "", withoutPlate: tc.withoutPlate ?? "" }
 }
 
 interface ItemColumn {
@@ -300,8 +300,8 @@ function renderTypeSection(params: RenderSectionParams): void {
     const cells: string[] = []
     const flags = platesForType(activeConfigs, row)
     for (const c of PRE_LENGTH) {
-      if (c.key === "withPlate") cells.push(flags.withPlate ? "Yes" : "")
-      else if (c.key === "withoutPlate") cells.push(flags.withoutPlate ? "Yes" : "")
+      if (c.key === "withPlate") cells.push(flags.withPlate || "")
+      else if (c.key === "withoutPlate") cells.push(flags.withoutPlate || "")
       else cells.push(String((row as unknown as Record<string, unknown>)[c.key] ?? ""))
     }
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
@@ -460,8 +460,8 @@ function renderFlatTable(params: RenderFlatParams): void {
     const cells: string[] = []
     const flags = platesForType(typeConfigs, row)
     for (const c of PRE_LENGTH) {
-      if (c.key === "withPlate") cells.push(flags.withPlate ? "Yes" : "")
-      else if (c.key === "withoutPlate") cells.push(flags.withoutPlate ? "Yes" : "")
+      if (c.key === "withPlate") cells.push(flags.withPlate || "")
+      else if (c.key === "withoutPlate") cells.push(flags.withoutPlate || "")
       else cells.push(String((row as unknown as Record<string, unknown>)[c.key] ?? ""))
     }
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))

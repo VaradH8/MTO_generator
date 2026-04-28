@@ -273,14 +273,14 @@ export default function SettingsPage() {
   const [addingType, setAddingType] = useState(false)
   const [newTypeName, setNewTypeName] = useState("")
   const [newTypeClassification, setNewTypeClassification] = useState<"internal" | "external">("internal")
-  const [newTypeWithPlate, setNewTypeWithPlate] = useState(false)
-  const [newTypeWithoutPlate, setNewTypeWithoutPlate] = useState(false)
+  const [newTypeWithPlate, setNewTypeWithPlate] = useState("")
+  const [newTypeWithoutPlate, setNewTypeWithoutPlate] = useState("")
   const [newTypeItems, setNewTypeItems] = useState<MasterTypeItem[]>([])
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
   const [editTypeName, setEditTypeName] = useState("")
   const [editTypeClassification, setEditTypeClassification] = useState<"internal" | "external">("internal")
-  const [editTypeWithPlate, setEditTypeWithPlate] = useState(false)
-  const [editTypeWithoutPlate, setEditTypeWithoutPlate] = useState(false)
+  const [editTypeWithPlate, setEditTypeWithPlate] = useState("")
+  const [editTypeWithoutPlate, setEditTypeWithoutPlate] = useState("")
   const [editTypeItems, setEditTypeItems] = useState<MasterTypeItem[]>([])
   const [confirmDeleteType, setConfirmDeleteType] = useState<string | null>(null)
   const [typeError, setTypeError] = useState("")
@@ -370,12 +370,12 @@ export default function SettingsPage() {
     const err = validateItemQtys(newTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    addMasterType({ typeName: newTypeName.trim(), classification: newTypeClassification, items: newTypeItems, withPlate: newTypeWithPlate, withoutPlate: newTypeWithoutPlate })
+    addMasterType({ typeName: newTypeName.trim(), classification: newTypeClassification, items: newTypeItems, withPlate: newTypeWithPlate.trim(), withoutPlate: newTypeWithoutPlate.trim() })
     setAddingType(false)
     setNewTypeName("")
     setNewTypeClassification("internal")
-    setNewTypeWithPlate(false)
-    setNewTypeWithoutPlate(false)
+    setNewTypeWithPlate("")
+    setNewTypeWithoutPlate("")
     setNewTypeItems([])
   }
 
@@ -385,8 +385,8 @@ export default function SettingsPage() {
     setEditingTypeId(id)
     setEditTypeName(t.typeName)
     setEditTypeClassification(t.classification || "internal")
-    setEditTypeWithPlate(!!t.withPlate)
-    setEditTypeWithoutPlate(!!t.withoutPlate)
+    setEditTypeWithPlate(t.withPlate ?? "")
+    setEditTypeWithoutPlate(t.withoutPlate ?? "")
     setEditTypeItems(t.items.map((i) => ({ ...i })))
   }
 
@@ -395,7 +395,7 @@ export default function SettingsPage() {
     const err = validateItemQtys(editTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), classification: editTypeClassification, items: editTypeItems, withPlate: editTypeWithPlate, withoutPlate: editTypeWithoutPlate })
+    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), classification: editTypeClassification, items: editTypeItems, withPlate: editTypeWithPlate.trim(), withoutPlate: editTypeWithoutPlate.trim() })
     setEditingTypeId(null)
   }
 
@@ -803,12 +803,26 @@ export default function SettingsPage() {
                 </label>
                 <span style={{ width: 1, height: 18, background: "var(--color-border)" }} />
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                  <input type="checkbox" checked={newTypeWithPlate} onChange={() => setNewTypeWithPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
-                  With Plate
+                  With Plate qty
+                  <input
+                    type="number"
+                    min="0"
+                    value={newTypeWithPlate}
+                    onChange={(e) => setNewTypeWithPlate(e.target.value)}
+                    placeholder="—"
+                    style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                  />
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                  <input type="checkbox" checked={newTypeWithoutPlate} onChange={() => setNewTypeWithoutPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
-                  Without Plate
+                  Without Plate qty
+                  <input
+                    type="number"
+                    min="0"
+                    value={newTypeWithoutPlate}
+                    onChange={(e) => setNewTypeWithoutPlate(e.target.value)}
+                    placeholder="—"
+                    style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                  />
                 </label>
               </div>
             </div>
@@ -851,12 +865,26 @@ export default function SettingsPage() {
                         </label>
                         <span style={{ width: 1, height: 18, background: "var(--color-border)" }} />
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                          <input type="checkbox" checked={editTypeWithPlate} onChange={() => setEditTypeWithPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
-                          With Plate
+                          With Plate qty
+                          <input
+                            type="number"
+                            min="0"
+                            value={editTypeWithPlate}
+                            onChange={(e) => setEditTypeWithPlate(e.target.value)}
+                            placeholder="—"
+                            style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                          />
                         </label>
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                          <input type="checkbox" checked={editTypeWithoutPlate} onChange={() => setEditTypeWithoutPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
-                          Without Plate
+                          Without Plate qty
+                          <input
+                            type="number"
+                            min="0"
+                            value={editTypeWithoutPlate}
+                            onChange={(e) => setEditTypeWithoutPlate(e.target.value)}
+                            placeholder="—"
+                            style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                          />
                         </label>
                       </div>
                     </div>
@@ -871,8 +899,8 @@ export default function SettingsPage() {
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 600, color: "var(--color-text)" }}>{mt.typeName}</span>
-                    {mt.withPlate && <StatusBadge variant="info">With Plate</StatusBadge>}
-                    {mt.withoutPlate && <StatusBadge variant="info">Without Plate</StatusBadge>}
+                    {mt.withPlate && <StatusBadge variant="info">With Plate: {mt.withPlate}</StatusBadge>}
+                    {mt.withoutPlate && <StatusBadge variant="info">Without Plate: {mt.withoutPlate}</StatusBadge>}
                     {mt.items.map((i) => {
                       const hasVars = i.variants && i.variants.length > 0
                       const label = hasVars

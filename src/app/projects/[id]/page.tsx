@@ -124,8 +124,10 @@ export default function ProjectDetailPage() {
     index: number
     typeName: string
     classification: "internal" | "external"
-    withPlate: boolean
-    withoutPlate: boolean
+    /** qty strings — empty means flag is off, non-empty means render that
+     *  number in the row's With Plate / Without Plate column. */
+    withPlate: string
+    withoutPlate: string
     items: TypeItemConfig[]
   }
   const [editingType, setEditingType] = useState<EditingTypeState | null>(null)
@@ -289,8 +291,8 @@ export default function ProjectDetailPage() {
       index: idx,
       typeName: t.typeName,
       classification: t.classification ?? "internal",
-      withPlate: !!t.withPlate,
-      withoutPlate: !!t.withoutPlate,
+      withPlate: t.withPlate ?? "",
+      withoutPlate: t.withoutPlate ?? "",
       items: t.items.map((i) => ({
         ...i,
         variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
@@ -304,8 +306,8 @@ export default function ProjectDetailPage() {
       index: -1,
       typeName: template?.typeName ?? "",
       classification: template?.classification ?? "internal",
-      withPlate: !!template?.withPlate,
-      withoutPlate: !!template?.withoutPlate,
+      withPlate: template?.withPlate ?? "",
+      withoutPlate: template?.withoutPlate ?? "",
       items: template
         ? template.items.map((i: MasterTypeItem) => ({
             itemId: i.itemId,
@@ -334,8 +336,8 @@ export default function ProjectDetailPage() {
     const next: SupportTypeConfig = {
       typeName: name,
       classification: editingType.classification,
-      withPlate: editingType.withPlate,
-      withoutPlate: editingType.withoutPlate,
+      withPlate: editingType.withPlate.trim(),
+      withoutPlate: editingType.withoutPlate.trim(),
       items: editingType.items,
     }
     const list = editingType.index === -1
@@ -604,8 +606,8 @@ export default function ProjectDetailPage() {
                   <StatusBadge variant={(t.classification ?? "internal") === "external" ? "warning" : "info"}>
                     {t.classification ?? "internal"}
                   </StatusBadge>
-                  {t.withPlate && <StatusBadge variant="info">With Plate</StatusBadge>}
-                  {t.withoutPlate && <StatusBadge variant="info">Without Plate</StatusBadge>}
+                  {t.withPlate && <StatusBadge variant="info">With Plate: {t.withPlate}</StatusBadge>}
+                  {t.withoutPlate && <StatusBadge variant="info">Without Plate: {t.withoutPlate}</StatusBadge>}
                   <span style={{ flex: 1, minWidth: 200, fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
                     {itemSummary || <em style={{ color: "var(--color-text-faint)" }}>(no items)</em>}
                   </span>
@@ -1237,13 +1239,27 @@ export default function ProjectDetailPage() {
                     </label>
                   ))}
                   <span style={{ width: 1, height: 18, background: "var(--color-border)" }} />
-                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                    <input type="checkbox" checked={editingType.withPlate} onChange={() => setEditingType({ ...editingType, withPlate: !editingType.withPlate })} style={{ accentColor: "var(--color-primary)" }} />
-                    With Plate
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                    With Plate qty
+                    <input
+                      type="number"
+                      min="0"
+                      value={editingType.withPlate}
+                      onChange={(e) => setEditingType({ ...editingType, withPlate: e.target.value })}
+                      placeholder="—"
+                      style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                    />
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                    <input type="checkbox" checked={editingType.withoutPlate} onChange={() => setEditingType({ ...editingType, withoutPlate: !editingType.withoutPlate })} style={{ accentColor: "var(--color-primary)" }} />
-                    Without Plate
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                    Without Plate qty
+                    <input
+                      type="number"
+                      min="0"
+                      value={editingType.withoutPlate}
+                      onChange={(e) => setEditingType({ ...editingType, withoutPlate: e.target.value })}
+                      placeholder="—"
+                      style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                    />
                   </label>
                 </div>
               </div>

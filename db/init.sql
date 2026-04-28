@@ -57,6 +57,8 @@ ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NU
 ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE master_types ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE master_types ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE master_types ADD COLUMN IF NOT EXISTS with_plate_qty TEXT NOT NULL DEFAULT '';
+ALTER TABLE master_types ADD COLUMN IF NOT EXISTS without_plate_qty TEXT NOT NULL DEFAULT '';
 
 -- ── Projects ────────────────────────────────────────────────────────
 
@@ -109,6 +111,8 @@ ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT N
 ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS with_plate_qty TEXT NOT NULL DEFAULT '';
+ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS without_plate_qty TEXT NOT NULL DEFAULT '';
 
 -- ── Upload Records ──────────────────────────────────────────────────
 

@@ -27,8 +27,8 @@ export default function ProjectsPage() {
   const [addingCustom, setAddingCustom] = useState(false)
   const [customTypeName, setCustomTypeName] = useState("")
   const [customClassification, setCustomClassification] = useState<"internal" | "external">("internal")
-  const [customWithPlate, setCustomWithPlate] = useState(false)
-  const [customWithoutPlate, setCustomWithoutPlate] = useState(false)
+  const [customWithPlate, setCustomWithPlate] = useState("")
+  const [customWithoutPlate, setCustomWithoutPlate] = useState("")
   const [customItems, setCustomItems] = useState<TypeItemConfig[]>([])
   const [saveToMaster, setSaveToMaster] = useState(false)
   const [customError, setCustomError] = useState("")
@@ -73,8 +73,8 @@ export default function ProjectsPage() {
     const newType: SupportTypeConfig = {
       typeName: mt.typeName,
       classification: mt.classification || "internal",
-      withPlate: !!mt.withPlate,
-      withoutPlate: !!mt.withoutPlate,
+      withPlate: mt.withPlate ?? "",
+      withoutPlate: mt.withoutPlate ?? "",
       items: mt.items.map((i: MasterTypeItem) => ({
         itemId: i.itemId,
         itemName: i.itemName,
@@ -113,8 +113,8 @@ export default function ProjectsPage() {
     setEditTypes((prev) => [...prev, {
       typeName: customTypeName.trim(),
       classification: customClassification,
-      withPlate: customWithPlate,
-      withoutPlate: customWithoutPlate,
+      withPlate: customWithPlate.trim(),
+      withoutPlate: customWithoutPlate.trim(),
       items: customItems,
     }])
 
@@ -135,8 +135,8 @@ export default function ProjectsPage() {
     setAddingCustom(false)
     setCustomTypeName("")
     setCustomClassification("internal")
-    setCustomWithPlate(false)
-    setCustomWithoutPlate(false)
+    setCustomWithPlate("")
+    setCustomWithoutPlate("")
     setCustomItems([])
     setSaveToMaster(false)
   }
@@ -239,8 +239,8 @@ export default function ProjectsPage() {
                 {editTypes.map((type, idx) => (
                   <div key={idx} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-3) var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)", marginBottom: "var(--space-2)", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)" }}>{type.typeName}</span>
-                    {type.withPlate && <StatusBadge variant="info">With Plate</StatusBadge>}
-                    {type.withoutPlate && <StatusBadge variant="info">Without Plate</StatusBadge>}
+                    {type.withPlate && <StatusBadge variant="info">With Plate: {type.withPlate}</StatusBadge>}
+                    {type.withoutPlate && <StatusBadge variant="info">Without Plate: {type.withoutPlate}</StatusBadge>}
                     {type.items.map((i) => (
                       <StatusBadge key={i.itemId} variant="info">{i.itemName}: {i.qty}</StatusBadge>
                     ))}
@@ -290,12 +290,26 @@ export default function ProjectsPage() {
                         </label>
                         <span style={{ width: 1, height: 18, background: "var(--color-border)" }} />
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                          <input type="checkbox" checked={customWithPlate} onChange={() => setCustomWithPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
-                          With Plate
+                          With Plate qty
+                          <input
+                            type="number"
+                            min="0"
+                            value={customWithPlate}
+                            onChange={(e) => setCustomWithPlate(e.target.value)}
+                            placeholder="—"
+                            style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                          />
                         </label>
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
-                          <input type="checkbox" checked={customWithoutPlate} onChange={() => setCustomWithoutPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
-                          Without Plate
+                          Without Plate qty
+                          <input
+                            type="number"
+                            min="0"
+                            value={customWithoutPlate}
+                            onChange={(e) => setCustomWithoutPlate(e.target.value)}
+                            placeholder="—"
+                            style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                          />
                         </label>
                       </div>
                     </div>
