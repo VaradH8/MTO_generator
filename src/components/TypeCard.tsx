@@ -10,6 +10,10 @@ interface TypeCardProps {
   count: number
   status?: CardStatus
   onDownload: () => void
+  /** Optional Excel download — when supplied a parallel button appears
+   *  with its own status. Hidden when undefined for backwards compat. */
+  excelStatus?: CardStatus
+  onDownloadExcel?: () => void
 }
 
 export default function TypeCard({
@@ -17,6 +21,8 @@ export default function TypeCard({
   count,
   status = "ready",
   onDownload,
+  excelStatus = "ready",
+  onDownloadExcel,
 }: TypeCardProps) {
   return (
     <div
@@ -67,15 +73,25 @@ export default function TypeCard({
       {/* Spacer */}
       <span style={{ flexGrow: 1 }} />
 
-      {/* Download Button */}
+      {/* Download Buttons */}
       <ActionButton
         variant="secondary"
         size="sm"
         loading={status === "downloading"}
         onClick={onDownload}
       >
-        {status === "error" ? "Retry" : "Download PDF"}
+        {status === "error" ? "Retry" : "PDF"}
       </ActionButton>
+      {onDownloadExcel && (
+        <ActionButton
+          variant="secondary"
+          size="sm"
+          loading={excelStatus === "downloading"}
+          onClick={onDownloadExcel}
+        >
+          {excelStatus === "error" ? "Retry" : "Excel"}
+        </ActionButton>
+      )}
     </div>
   )
 }

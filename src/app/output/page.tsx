@@ -12,6 +12,7 @@ import { useApprovals } from "@/context/ApprovalContext"
 import { useProjects } from "@/context/ProjectContext"
 import { useSettings } from "@/context/SettingsContext"
 import { generatePDF, generateCombinedPDF } from "@/lib/generatePDF"
+import { generateExcel, generateCombinedExcel } from "@/lib/generateExcel"
 import { generateZip } from "@/lib/generateZip"
 
 export default function OutputPage() {
@@ -37,8 +38,10 @@ export default function OutputPage() {
     : {}) as Record<string, import("@/types/support").TypeMapping>
   const pdfLogos = { left: pdfConfig.leftLogoDataUrl || undefined, right: pdfConfig.rightLogoDataUrl || undefined }
   const [downloadStatus, setDownloadStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
+  const [xlsxStatus, setXlsxStatus] = useState<Record<string, "ready" | "downloading" | "error">>({})
   const [zipping, setZipping] = useState(false)
   const [combinedStatus, setCombinedStatus] = useState<"ready" | "downloading" | "error">("ready")
+  const [combinedXlsxStatus, setCombinedXlsxStatus] = useState<"ready" | "downloading" | "error">("ready")
 
   // Submit for admin approval when page loads — gate on `loaded` so we don't
   // fire before localStorage is hydrated (which would cause duplicate submissions).
@@ -106,6 +109,18 @@ export default function OutputPage() {
     }
   }
 
+  const handleDownloadExcel = async (type: string) => {
+    setXlsxStatus((s) => ({ ...s, [type]: "downloading" }))
+    try {
+      const rows = groupedSupports[type]
+      const blob = await generateExcel(type, rows, currentProjectName, typeConfigs, projectMapping)
+      triggerDownload(blob, `${type}-supports.xlsx`)
+      setXlsxStatus((s) => ({ ...s, [type]: "ready" }))
+    } catch {
+      setXlsxStatus((s) => ({ ...s, [type]: "error" }))
+    }
+  }
+
   const handleDownloadAll = async () => {
     setZipping(true)
     try {
@@ -119,6 +134,19 @@ export default function OutputPage() {
       triggerDownload(zipBlob, "support-pdfs.zip")
     } catch { /* silently */ }
     finally { setZipping(false) }
+  }
+
+  const handleGenerateCombinedExcel = async () => {
+    if (!groupedSupports) return
+    setCombinedXlsxStatus("downloading")
+    try {
+      const blob = await generateCombinedExcel(groupedSupports, currentProjectName, typeConfigs, projectMapping)
+      const base = (currentProjectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      triggerDownload(blob, `${base}_combined.xlsx`)
+      setCombinedXlsxStatus("ready")
+    } catch {
+      setCombinedXlsxStatus("error")
+    }
   }
 
   const handleGenerateCombined = async () => {
@@ -211,7 +239,15 @@ export default function OutputPage() {
               loading={combinedStatus === "downloading"}
               onClick={handleGenerateCombined}
             >
-              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Generate & Download"}
+              {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Download PDF"}
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              size="sm"
+              loading={combinedXlsxStatus === "downloading"}
+              onClick={handleGenerateCombinedExcel}
+            >
+              {combinedXlsxStatus === "downloading" ? "Generating..." : combinedXlsxStatus === "error" ? "Retry" : "Download Excel"}
             </ActionButton>
           </div>
         )
@@ -225,6 +261,8 @@ export default function OutputPage() {
           count={rows.length}
           status={downloadStatus[type] || "ready"}
           onDownload={() => handleDownloadPDF(type)}
+          excelStatus={xlsxStatus[type] || "ready"}
+          onDownloadExcel={() => handleDownloadExcel(type)}
         />
       ))}
 

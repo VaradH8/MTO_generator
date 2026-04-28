@@ -10,7 +10,7 @@ import { computeMappedTotal } from "./parseMapping"
  *  — when absent the legacy "sum of every length" total is rendered. */
 export type ProjectMapping = Record<string, TypeMapping>
 
-function totalForRow(row: SupportRow, mapping: ProjectMapping | undefined): string {
+export function totalForRow(row: SupportRow, mapping: ProjectMapping | undefined): string {
   const m = mapping?.[row.type]
   return computeMappedTotal(row.lengths, m)
 }
@@ -23,7 +23,7 @@ const BORDER: [number, number, number] = [201, 210, 228]
 /** Meta columns before the LENGTH block. With Plate / Without Plate are
  *  derived per-row from the row's type config (one tick per type, not
  *  per item) — they render "Yes" or blank, never free text. */
-const PRE_LENGTH: { key: keyof SupportRow | "withPlate" | "withoutPlate"; label: string }[] = [
+export const PRE_LENGTH: { key: keyof SupportRow | "withPlate" | "withoutPlate"; label: string }[] = [
   { key: "slNo", label: "SL NO" },
   { key: "level", label: "LEVEL" },
   { key: "tagNumber", label: "TAG NUMBER" },
@@ -36,7 +36,7 @@ const PRE_LENGTH: { key: keyof SupportRow | "withPlate" | "withoutPlate"; label:
 /** Resolve the type-level plate quantities for a row by matching its type +
  *  classification against the project's typeConfigs. Falls back to a
  *  classification-agnostic match, then to empty strings (column blank). */
-function platesForType(typeConfigs: SupportTypeConfig[], row: SupportRow): { withPlate: string; withoutPlate: string } {
+export function platesForType(typeConfigs: SupportTypeConfig[], row: SupportRow): { withPlate: string; withoutPlate: string } {
   const t = row.type.trim().toLowerCase()
   const cls = row.classification ?? "internal"
   const tc =
@@ -46,7 +46,7 @@ function platesForType(typeConfigs: SupportTypeConfig[], row: SupportRow): { wit
   return { withPlate: tc.withPlate ?? "", withoutPlate: tc.withoutPlate ?? "" }
 }
 
-interface ItemColumn {
+export interface ItemColumn {
   itemName: string
   /** Variant label, or empty string for non-variant items. */
   variantLabel: string
@@ -54,7 +54,7 @@ interface ItemColumn {
 
 /** Variant dedupe key — trims whitespace + lowercases so "Z", " Z " and "z"
  *  collapse into one column instead of creating parallel ones. */
-function normVariant(label: string): string {
+export function normVariant(label: string): string {
   return label.trim().toLowerCase()
 }
 
@@ -64,7 +64,7 @@ function normVariant(label: string): string {
  *  in practice every project sticks with one (e.g. CS+HDG), so a single
  *  representative value is sufficient. Ties break on most-frequent, then
  *  first-seen. */
-function dominantMaterial(rows: SupportRow[]): string {
+export function dominantMaterial(rows: SupportRow[]): string {
   const counts = new Map<string, number>()
   let best = ""
   let bestCount = 0
@@ -82,7 +82,7 @@ function dominantMaterial(rows: SupportRow[]): string {
  *  model per variant label; non-variant items get one model under "" key).
  *  Distinct values for the same slot are comma-joined so a master+project
  *  config disagreement is visible rather than silently dropping one. */
-function buildItemModels(typeConfigs: SupportTypeConfig[]): {
+export function buildItemModels(typeConfigs: SupportTypeConfig[]): {
   parent: Map<string, string>
   variant: Map<string, Map<string, string>>
 } {
@@ -121,7 +121,7 @@ function buildItemModels(typeConfigs: SupportTypeConfig[]): {
 }
 
 /** Compose the header text for an item or its variant subcolumn. */
-function composeHeader(name: string, parts: string[]): string {
+export function composeHeader(name: string, parts: string[]): string {
   const tail = parts.map((p) => p.trim()).filter(Boolean).join("-")
   return tail ? `${name} (${tail})` : name
 }
@@ -137,7 +137,7 @@ function composeHeader(name: string, parts: string[]): string {
  *     defining L ANGLE with variants Z,S in one type and without variants
  *     in another type produces a blank column sitting before Z and S.
  */
-function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
+export function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
   // Pass 1 — collect, per itemName, the ordered list of normalized variant
   // keys and their first-seen display label.
   type Entry = { order: string[]; display: Map<string, string> }
@@ -195,7 +195,7 @@ function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[] {
  *  Z-only support shows "2" under Z and blank under S — not blank under
  *  both. Secondary variant columns never consume the empty-key value,
  *  otherwise the same number would duplicate across every sub-column. */
-function readItemValue(row: SupportRow, itemName: string, variantLabel: string, isPrimary = false): string {
+export function readItemValue(row: SupportRow, itemName: string, variantLabel: string, isPrimary = false): string {
   const map = row.itemQtys?.[itemName]
   if (!map) return ""
   const direct = map[variantLabel]
@@ -212,7 +212,7 @@ function readItemValue(row: SupportRow, itemName: string, variantLabel: string, 
 }
 
 /** Highest length letter (a..p) that has any non-empty value across the given rows. */
-function maxLengthKey(rows: SupportRow[]): LengthKey {
+export function maxLengthKey(rows: SupportRow[]): LengthKey {
   let maxIdx = 0
   for (const row of rows) {
     for (let i = LENGTH_KEYS.length - 1; i >= 0; i--) {
@@ -327,18 +327,18 @@ function renderTypeSection(params: RenderSectionParams): void {
   headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
 
   // Item headers carry the material + model so cells stay clean (just qty).
-  // Variant items split: parent header keeps the material, each variant's
-  // own model rides under its label in row 2.
+  // Variant items: parent header is just ITEM, each variant subcolumn owns
+  // the full MATERIAL-MODEL so a row reading "Z" or "S" gets the same
+  // context as a non-variant column header.
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
     const upper = g.itemName.toUpperCase()
     if (isVariant) {
-      const parentHeader = composeHeader(upper, [material])
-      headRow1.push({ content: parentHeader, colSpan: g.variantLabels.length, styles: headStyles })
+      headRow1.push({ content: upper, colSpan: g.variantLabels.length, styles: headStyles })
       const variantModels = models.variant.get(g.itemName)
       for (const label of g.variantLabels) {
         const model = variantModels?.get(normVariant(label)) ?? ""
-        headRow2.push({ content: composeHeader(label, [model]), styles: headStyles })
+        headRow2.push({ content: composeHeader(label, [material, model]), styles: headStyles })
       }
     } else {
       const model = models.parent.get(g.itemName) ?? ""
@@ -504,12 +504,11 @@ function renderFlatTable(params: RenderFlatParams): void {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
     const upper = g.itemName.toUpperCase()
     if (isVariant) {
-      const parentHeader = composeHeader(upper, [material])
-      headRow1.push({ content: parentHeader, colSpan: g.variantLabels.length, styles: headStyles })
+      headRow1.push({ content: upper, colSpan: g.variantLabels.length, styles: headStyles })
       const variantModels = models.variant.get(g.itemName)
       for (const label of g.variantLabels) {
         const model = variantModels?.get(normVariant(label)) ?? ""
-        headRow2.push({ content: composeHeader(label, [model]), styles: headStyles })
+        headRow2.push({ content: composeHeader(label, [material, model]), styles: headStyles })
       }
     } else {
       const model = models.parent.get(g.itemName) ?? ""

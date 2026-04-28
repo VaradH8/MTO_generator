@@ -8,6 +8,7 @@ import { useProjectTables } from "@/context/ProjectTableContext"
 import { useAuth } from "@/context/AuthContext"
 import { useSettings } from "@/context/SettingsContext"
 import { generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
+import { generateCombinedExcel, generateSelectionExcel } from "@/lib/generateExcel"
 import { parseMappingFile, computeMappedTotal } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
@@ -89,7 +90,9 @@ export default function ProjectDetailPage() {
   const pdfTypes = hasPdfs ? Object.entries(groupedSupports) : []
 
   const [combinedStatus, setCombinedStatus] = useState<"ready" | "downloading" | "error">("ready")
+  const [combinedXlsxStatus, setCombinedXlsxStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [selectionStatus, setSelectionStatus] = useState<"ready" | "downloading" | "error">("ready")
+  const [selectionXlsxStatus, setSelectionXlsxStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [showTable, setShowTable] = useState(true)
 
   // Classification filter for Combined PDF generation. Rows uploaded as
@@ -202,6 +205,26 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const handleDownloadCombinedExcel = async () => {
+    if (!hasPdfs) return
+    setCombinedXlsxStatus("downloading")
+    try {
+      const filteredRows = filterRows(tableRows, combinedFilter)
+      if (filteredRows.length === 0) {
+        setCombinedXlsxStatus("error")
+        return
+      }
+      const filteredConfigs = filterConfigs(typeConfigs, combinedFilter)
+      const blob = await generateCombinedExcel(groupByType(filteredRows), projectName, filteredConfigs, projectMapping)
+      const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      const suffix = combinedFilter === "all" ? "combined" : combinedFilter
+      triggerDownload(blob, `${base}_${suffix}.xlsx`)
+      setCombinedXlsxStatus("ready")
+    } catch {
+      setCombinedXlsxStatus("error")
+    }
+  }
+
   const handleDownloadVersion = async (version: PdfVersion) => {
     setVersionDownloading(version.id)
     try {
@@ -239,6 +262,20 @@ export default function ProjectDetailPage() {
       setSelectionStatus("ready")
     } catch {
       setSelectionStatus("error")
+    }
+  }
+
+  const handleDownloadSelectionExcel = async () => {
+    if (effectiveSelection.size === 0) return
+    setSelectionXlsxStatus("downloading")
+    try {
+      const selRows = tableRows.filter((r) => effectiveSelection.has(r._rowIndex))
+      const blob = await generateSelectionExcel(selRows, projectName, typeConfigs, projectMapping)
+      const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      triggerDownload(blob, `${base}_selected_${selRows.length}.xlsx`)
+      setSelectionXlsxStatus("ready")
+    } catch {
+      setSelectionXlsxStatus("error")
     }
   }
 
@@ -673,7 +710,16 @@ export default function ProjectDetailPage() {
                     disabled={filteredPreview.length === 0}
                     onClick={handleDownloadCombined}
                   >
-                    {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Generate & Download"}
+                    {combinedStatus === "downloading" ? "Generating..." : combinedStatus === "error" ? "Retry" : "Generate & Download PDF"}
+                  </ActionButton>
+                  <ActionButton
+                    variant="secondary"
+                    size="sm"
+                    loading={combinedXlsxStatus === "downloading"}
+                    disabled={filteredPreview.length === 0}
+                    onClick={handleDownloadCombinedExcel}
+                  >
+                    {combinedXlsxStatus === "downloading" ? "Generating..." : combinedXlsxStatus === "error" ? "Retry" : "Excel"}
                   </ActionButton>
                 </div>
 
@@ -900,7 +946,15 @@ export default function ProjectDetailPage() {
                     loading={selectionStatus === "downloading"}
                     onClick={handleDownloadSelection}
                   >
-                    {selectionStatus === "downloading" ? "Generating..." : selectionStatus === "error" ? "Retry" : "Generate PDF from Selection"}
+                    {selectionStatus === "downloading" ? "Generating..." : selectionStatus === "error" ? "Retry" : "PDF from Selection"}
+                  </ActionButton>
+                  <ActionButton
+                    variant="secondary"
+                    size="sm"
+                    loading={selectionXlsxStatus === "downloading"}
+                    onClick={handleDownloadSelectionExcel}
+                  >
+                    {selectionXlsxStatus === "downloading" ? "Generating..." : selectionXlsxStatus === "error" ? "Retry" : "Excel from Selection"}
                   </ActionButton>
                   <ActionButton variant="ghost" size="sm" onClick={() => { setSelectedRows(new Set()); setCellSelectionRows(new Set()) }}>
                     Clear
