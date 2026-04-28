@@ -70,10 +70,12 @@ for (const k of LENGTH_KEYS) {
  * Fields the user can fill globally via the Missing Columns form when the
  * input sheet lacks a header for them. Lengths are intentionally omitted —
  * they are per-row cells the user fills in the review table, not a single
- * value applied to every row.
+ * value applied to every row. Material is included so a user uploading a
+ * sheet without a Material column can supply one default value that gets
+ * applied to every row at finalize time (still editable per-row later).
  */
 const USER_FILLABLE_FIELDS = [
-  "level", "tagNumber", "type", "withPlate", "withoutPlate",
+  "level", "tagNumber", "type", "material", "withPlate", "withoutPlate",
 ]
 
 export async function parseExcelFile(file: File): Promise<ParseResult> {

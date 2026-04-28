@@ -241,6 +241,16 @@ export default function UploadPage() {
         }
       }
 
+      // Material isn't a per-row "missing field" (we don't flag empty
+      // material cells as warnings), so the missingFields-driven override
+      // loop doesn't touch it. Instead, apply the user's Material input
+      // from the Missing Columns form to every row that doesn't already
+      // carry one from the Excel — leaves filled rows untouched.
+      const materialOverride = overrides["material"]?.trim()
+      if (materialOverride && !updated.material?.trim()) {
+        updated.material = materialOverride
+      }
+
       updated.total = computeMappedTotal(updated.lengths, projectMapping[updated.type])
       const ti = remainingMissing.indexOf("total"); if (ti !== -1) remainingMissing.splice(ti, 1)
       updated._missingFields = remainingMissing
