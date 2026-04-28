@@ -28,7 +28,7 @@ export async function GET(
 
     // Support types with items
     const { rows: types } = await pool.query(
-      `SELECT id, type_name, classification FROM project_support_types WHERE project_id = $1`,
+      `SELECT id, type_name, classification, with_plate, without_plate FROM project_support_types WHERE project_id = $1`,
       [id]
     )
     const supportTypes = await Promise.all(
@@ -41,6 +41,8 @@ export async function GET(
         return {
           typeName: t.type_name,
           classification: t.classification ?? "internal",
+          withPlate: !!t.with_plate,
+          withoutPlate: !!t.without_plate,
           items: items.map((i: any) => ({
             itemId: i.item_id,
             itemName: i.item_name,
@@ -159,9 +161,9 @@ export async function PUT(
       // Insert new support types and their items
       for (const st of supportTypes) {
         const { rows: inserted } = await pool.query(
-          `INSERT INTO project_support_types (project_id, type_name, classification)
-           VALUES ($1, $2, $3) RETURNING id`,
-          [id, st.typeName, st.classification || "internal"]
+          `INSERT INTO project_support_types (project_id, type_name, classification, with_plate, without_plate)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [id, st.typeName, st.classification || "internal", !!st.withPlate, !!st.withoutPlate]
         )
         const typeId = inserted[0].id
 

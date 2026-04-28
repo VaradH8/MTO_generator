@@ -15,17 +15,16 @@ import FindReplace from "./table/FindReplace"
 
 // ── Column definitions ──────────────────────────────────────────────────
 
-// With Plate / Without Plate are free-text per-row columns right after
-// Material — they are NOT per-item. Item-level columns (qty + model)
-// live further right inside the item block (see itemCols).
-const PRE_LENGTH_COLS: ColumnDef[] = [
+// With Plate / Without Plate render "Yes"/blank, derived from the row's
+// type config flags (one tick per type). They're read-only in the table —
+// the source of truth is the project's type configs in Settings/Project
+// type editor. Material stays free-text per-row.
+const STATIC_PRE_COLS: ColumnDef[] = [
   { key: "slNo", label: "SL No", minWidth: 60, align: "center", type: "text", getValue: (r) => r.slNo },
   { key: "level", label: "Level", minWidth: 60, align: "center", type: "text", getValue: (r) => r.level },
   { key: "tagNumber", label: "Tag Number", minWidth: 160, align: "left", type: "text", getValue: (r) => r.tagNumber },
   { key: "type", label: "Type", minWidth: 90, align: "left", type: "text", getValue: (r) => r.type },
   { key: "material", label: "Material", minWidth: 100, align: "left", type: "text", alwaysEditable: true, getValue: (r) => r.material ?? "" },
-  { key: "withPlate", label: "With Plate", minWidth: 80, align: "center", type: "text", alwaysEditable: true, getValue: (r) => r.withPlate ?? "" },
-  { key: "withoutPlate", label: "Without Plate", minWidth: 90, align: "center", type: "text", alwaysEditable: true, getValue: (r) => r.withoutPlate ?? "" },
 ]
 
 const LENGTH_COLS: ColumnDef[] = LENGTH_KEYS.map((k) => ({
@@ -218,13 +217,31 @@ export default function SupportTable({ rows, typeConfigs = [], projectMapping, o
   }, [typeConfigs])
 
   const totalCol = useMemo(() => makeTotalCol(projectMapping), [projectMapping])
+  // With Plate / Without Plate derive read-only from the row's type config
+  // — one tick per type lives in Settings / Project Type editor.
+  const plateCols: ColumnDef[] = useMemo(() => {
+    const platesForType = (r: SupportRow): { withPlate: boolean; withoutPlate: boolean } => {
+      const t = r.type.trim().toLowerCase()
+      const cls = r.classification ?? "internal"
+      const tc =
+        typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t && (c.classification ?? "internal") === cls) ||
+        typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t)
+      if (!tc) return { withPlate: false, withoutPlate: false }
+      return { withPlate: !!tc.withPlate, withoutPlate: !!tc.withoutPlate }
+    }
+    return [
+      { key: "withPlate", label: "With Plate", minWidth: 80, align: "center", type: "text", readOnly: true, getValue: (r) => platesForType(r).withPlate ? "Yes" : "" },
+      { key: "withoutPlate", label: "Without Plate", minWidth: 90, align: "center", type: "text", readOnly: true, getValue: (r) => platesForType(r).withoutPlate ? "Yes" : "" },
+    ]
+  }, [typeConfigs])
   const baseColumns = useMemo(() => [
-    ...PRE_LENGTH_COLS,
+    ...STATIC_PRE_COLS,
+    ...plateCols,
     ...LENGTH_COLS,
     totalCol,
     ...itemCols,
     REMARKS_COL,
-  ], [itemCols, totalCol])
+  ], [itemCols, totalCol, plateCols])
 
   // Apply column order + visibility
   const visibleColumns = useMemo(() => {

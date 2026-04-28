@@ -58,6 +58,11 @@ export interface MasterTypeConfig {
   typeName: string
   classification: "internal" | "external"
   items: MasterTypeItem[]
+  /** Plate flags now live at the type level (one tick per master type),
+   *  not per item. They drive the per-row "With Plate" / "Without Plate"
+   *  columns in the PDF and the on-screen table. */
+  withPlate?: boolean
+  withoutPlate?: boolean
 }
 
 export interface MasterTypeItem {
@@ -95,6 +100,11 @@ export interface SupportTypeConfig {
   typeName: string
   classification: "internal" | "external"
   items: TypeItemConfig[]
+  /** Per-type plate flags — one pair of ticks per support type. Drive the
+   *  row-level "With Plate" / "Without Plate" PDF + table columns via the
+   *  row.type → typeConfig lookup. */
+  withPlate?: boolean
+  withoutPlate?: boolean
 }
 
 export interface ItemConfig {

@@ -21,10 +21,9 @@ const MUTED: [number, number, number] = [74, 84, 120]
 const BORDER: [number, number, number] = [201, 210, 228]
 
 /** Meta columns before the LENGTH block. With Plate / Without Plate are
- *  free-text per-row fields right after Material — they are NOT per-item.
- *  Item-level columns (qty + model) live further right inside the item
- *  block; see buildItemColumns. */
-const PRE_LENGTH: { key: keyof SupportRow; label: string }[] = [
+ *  derived per-row from the row's type config (one tick per type, not
+ *  per item) — they render "Yes" or blank, never free text. */
+const PRE_LENGTH: { key: keyof SupportRow | "withPlate" | "withoutPlate"; label: string }[] = [
   { key: "slNo", label: "SL NO" },
   { key: "level", label: "LEVEL" },
   { key: "tagNumber", label: "TAG NUMBER" },
@@ -33,6 +32,19 @@ const PRE_LENGTH: { key: keyof SupportRow; label: string }[] = [
   { key: "withPlate", label: "WITH PLATE" },
   { key: "withoutPlate", label: "WITHOUT PLATE" },
 ]
+
+/** Resolve the type-level plate flags for a row by matching its type +
+ *  classification against the project's typeConfigs. Falls back to a
+ *  classification-agnostic match, then to no flags. */
+function platesForType(typeConfigs: SupportTypeConfig[], row: SupportRow): { withPlate: boolean; withoutPlate: boolean } {
+  const t = row.type.trim().toLowerCase()
+  const cls = row.classification ?? "internal"
+  const tc =
+    typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t && (c.classification ?? "internal") === cls) ||
+    typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t)
+  if (!tc) return { withPlate: false, withoutPlate: false }
+  return { withPlate: !!tc.withPlate, withoutPlate: !!tc.withoutPlate }
+}
 
 interface ItemColumn {
   itemName: string
@@ -286,7 +298,12 @@ function renderTypeSection(params: RenderSectionParams): void {
 
   const body = rows.map((row) => {
     const cells: string[] = []
-    for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
+    const flags = platesForType(activeConfigs, row)
+    for (const c of PRE_LENGTH) {
+      if (c.key === "withPlate") cells.push(flags.withPlate ? "Yes" : "")
+      else if (c.key === "withoutPlate") cells.push(flags.withoutPlate ? "Yes" : "")
+      else cells.push(String((row as unknown as Record<string, unknown>)[c.key] ?? ""))
+    }
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {
@@ -441,7 +458,12 @@ function renderFlatTable(params: RenderFlatParams): void {
 
   const body = rows.map((row) => {
     const cells: string[] = []
-    for (const c of PRE_LENGTH) cells.push(String(row[c.key] ?? ""))
+    const flags = platesForType(typeConfigs, row)
+    for (const c of PRE_LENGTH) {
+      if (c.key === "withPlate") cells.push(flags.withPlate ? "Yes" : "")
+      else if (c.key === "withoutPlate") cells.push(flags.withoutPlate ? "Yes" : "")
+      else cells.push(String((row as unknown as Record<string, unknown>)[c.key] ?? ""))
+    }
     for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
     cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {

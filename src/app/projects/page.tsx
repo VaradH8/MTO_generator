@@ -27,6 +27,8 @@ export default function ProjectsPage() {
   const [addingCustom, setAddingCustom] = useState(false)
   const [customTypeName, setCustomTypeName] = useState("")
   const [customClassification, setCustomClassification] = useState<"internal" | "external">("internal")
+  const [customWithPlate, setCustomWithPlate] = useState(false)
+  const [customWithoutPlate, setCustomWithoutPlate] = useState(false)
   const [customItems, setCustomItems] = useState<TypeItemConfig[]>([])
   const [saveToMaster, setSaveToMaster] = useState(false)
   const [customError, setCustomError] = useState("")
@@ -71,6 +73,8 @@ export default function ProjectsPage() {
     const newType: SupportTypeConfig = {
       typeName: mt.typeName,
       classification: mt.classification || "internal",
+      withPlate: !!mt.withPlate,
+      withoutPlate: !!mt.withoutPlate,
       items: mt.items.map((i: MasterTypeItem) => ({
         itemId: i.itemId,
         itemName: i.itemName,
@@ -78,8 +82,6 @@ export default function ProjectsPage() {
         make: i.make,
         model: i.model,
         variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
-        withPlate: !!i.withPlate,
-        withoutPlate: !!i.withoutPlate,
       })),
     }
     setEditTypes((prev) => [...prev, newType])
@@ -91,16 +93,12 @@ export default function ProjectsPage() {
     if (exists) {
       setCustomItems(customItems.filter((i) => i.itemId !== itemId))
     } else {
-      setCustomItems([...customItems, { itemId, itemName, qty: "", make: "", model: "", withPlate: false, withoutPlate: false }])
+      setCustomItems([...customItems, { itemId, itemName, qty: "", make: "", model: "" }])
     }
   }
 
   const updateCustomItemField = (itemId: string, field: keyof TypeItemConfig, value: string) => {
     setCustomItems(customItems.map((i) => i.itemId === itemId ? { ...i, [field]: value } : i))
-  }
-
-  const toggleCustomItemPlate = (itemId: string, field: "withPlate" | "withoutPlate") => {
-    setCustomItems(customItems.map((i) => i.itemId === itemId ? { ...i, [field]: !i[field] } : i))
   }
 
   const handleSaveCustomType = () => {
@@ -112,18 +110,24 @@ export default function ProjectsPage() {
     setCustomError("")
 
     // Add to project types
-    setEditTypes((prev) => [...prev, { typeName: customTypeName.trim(), classification: customClassification, items: customItems }])
+    setEditTypes((prev) => [...prev, {
+      typeName: customTypeName.trim(),
+      classification: customClassification,
+      withPlate: customWithPlate,
+      withoutPlate: customWithoutPlate,
+      items: customItems,
+    }])
 
     // Optionally save to master config
     if (saveToMaster) {
       addMasterType({
         typeName: customTypeName.trim(),
         classification: customClassification,
+        withPlate: customWithPlate,
+        withoutPlate: customWithoutPlate,
         items: customItems.map((i) => ({
           itemId: i.itemId, itemName: i.itemName, qty: i.qty, make: i.make, model: i.model,
           variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
-          withPlate: !!i.withPlate,
-          withoutPlate: !!i.withoutPlate,
         })),
       })
     }
@@ -131,6 +135,8 @@ export default function ProjectsPage() {
     setAddingCustom(false)
     setCustomTypeName("")
     setCustomClassification("internal")
+    setCustomWithPlate(false)
+    setCustomWithoutPlate(false)
     setCustomItems([])
     setSaveToMaster(false)
   }
@@ -233,6 +239,8 @@ export default function ProjectsPage() {
                 {editTypes.map((type, idx) => (
                   <div key={idx} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-3) var(--space-4)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)", marginBottom: "var(--space-2)", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "var(--font-display)", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-text)" }}>{type.typeName}</span>
+                    {type.withPlate && <StatusBadge variant="info">With Plate</StatusBadge>}
+                    {type.withoutPlate && <StatusBadge variant="info">Without Plate</StatusBadge>}
                     {type.items.map((i) => (
                       <StatusBadge key={i.itemId} variant="info">{i.itemName}: {i.qty}</StatusBadge>
                     ))}
@@ -271,7 +279,7 @@ export default function ProjectsPage() {
                     <div style={{ marginBottom: "var(--space-3)" }}>
                       <label style={labelStyle}>Type Name</label>
                       <input value={customTypeName} onChange={(e) => { setCustomTypeName(e.target.value); setCustomError("") }} placeholder="e.g. RF01" style={{ ...inputStyle, maxWidth: 200, fontWeight: 600 }} />
-                      <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+                      <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-2)", flexWrap: "wrap", alignItems: "center" }}>
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
                           <input type="radio" checked={customClassification === "internal"} onChange={() => setCustomClassification("internal")} />
                           Internal
@@ -279,6 +287,15 @@ export default function ProjectsPage() {
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
                           <input type="radio" checked={customClassification === "external"} onChange={() => setCustomClassification("external")} />
                           External
+                        </label>
+                        <span style={{ width: 1, height: 18, background: "var(--color-border)" }} />
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                          <input type="checkbox" checked={customWithPlate} onChange={() => setCustomWithPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
+                          With Plate
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                          <input type="checkbox" checked={customWithoutPlate} onChange={() => setCustomWithoutPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
+                          Without Plate
                         </label>
                       </div>
                     </div>
@@ -305,23 +322,11 @@ export default function ProjectsPage() {
                     {customItems.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
                         {customItems.map((item) => (
-                          <div key={item.itemId} style={{ padding: "var(--space-2)", background: "var(--color-surface)", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr 1fr", gap: "var(--space-2)", alignItems: "end" }}>
-                              <div style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, color: "var(--color-text)", paddingTop: 6 }}>{item.itemName}</div>
-                              <input type="number" min="0" value={item.qty} onChange={(e) => updateCustomItemField(item.itemId, "qty", e.target.value)} placeholder="Qty" style={{ ...inputStyle, height: 30, fontSize: "0.75rem", textAlign: "center" }} />
-                              <input value={item.make} onChange={(e) => updateCustomItemField(item.itemId, "make", e.target.value)} placeholder="Make" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
-                              <input value={item.model} onChange={(e) => updateCustomItemField(item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
-                            </div>
-                            <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
-                              <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
-                                <input type="checkbox" checked={!!item.withPlate} onChange={() => toggleCustomItemPlate(item.itemId, "withPlate")} style={{ accentColor: "var(--color-primary)" }} />
-                                With Plate
-                              </label>
-                              <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
-                                <input type="checkbox" checked={!!item.withoutPlate} onChange={() => toggleCustomItemPlate(item.itemId, "withoutPlate")} style={{ accentColor: "var(--color-primary)" }} />
-                                Without Plate
-                              </label>
-                            </div>
+                          <div key={item.itemId} style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr 1fr", gap: "var(--space-2)", padding: "var(--space-2)", background: "var(--color-surface)", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border)", alignItems: "end" }}>
+                            <div style={{ fontFamily: "var(--font-display)", fontSize: "0.75rem", fontWeight: 600, color: "var(--color-text)", paddingTop: 6 }}>{item.itemName}</div>
+                            <input type="number" min="0" value={item.qty} onChange={(e) => updateCustomItemField(item.itemId, "qty", e.target.value)} placeholder="Qty" style={{ ...inputStyle, height: 30, fontSize: "0.75rem", textAlign: "center" }} />
+                            <input value={item.make} onChange={(e) => updateCustomItemField(item.itemId, "make", e.target.value)} placeholder="Make" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
+                            <input value={item.model} onChange={(e) => updateCustomItemField(item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 30, fontSize: "0.75rem" }} />
                           </div>
                         ))}
                       </div>

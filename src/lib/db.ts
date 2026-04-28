@@ -28,6 +28,28 @@ async function runMigrations(): Promise<void> {
     `ALTER TABLE master_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE project_type_items ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    // Plate flags moved to the type level (one pair per type, not per item).
+    `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS with_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS without_plate BOOLEAN NOT NULL DEFAULT FALSE`,
+    // One-time backfill: lift any per-item plate ticks up to the type level
+    // so existing configs aren't visually reset to "all false". Gated by a
+    // settings-row flag so subsequent ensureMigrations calls don't re-run
+    // and clobber a user who has explicitly unticked a type-level flag.
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM settings WHERE key = 'migration.type_plate_flags_v1') THEN
+         UPDATE master_types mt SET
+           with_plate = COALESCE((SELECT BOOL_OR(with_plate) FROM master_type_items WHERE master_type_id = mt.id), FALSE),
+           without_plate = COALESCE((SELECT BOOL_OR(without_plate) FROM master_type_items WHERE master_type_id = mt.id), FALSE);
+         UPDATE project_support_types pst SET
+           with_plate = COALESCE((SELECT BOOL_OR(with_plate) FROM project_type_items WHERE project_support_type_id = pst.id), FALSE),
+           without_plate = COALESCE((SELECT BOOL_OR(without_plate) FROM project_type_items WHERE project_support_type_id = pst.id), FALSE);
+         INSERT INTO settings (key, value) VALUES ('migration.type_plate_flags_v1', 'done')
+           ON CONFLICT (key) DO NOTHING;
+       END IF;
+     END $$`,
     `CREATE TABLE IF NOT EXISTS project_pdf_versions (
        id               VARCHAR(50) PRIMARY KEY,
        project_id       VARCHAR(50) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

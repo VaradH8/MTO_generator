@@ -273,10 +273,14 @@ export default function SettingsPage() {
   const [addingType, setAddingType] = useState(false)
   const [newTypeName, setNewTypeName] = useState("")
   const [newTypeClassification, setNewTypeClassification] = useState<"internal" | "external">("internal")
+  const [newTypeWithPlate, setNewTypeWithPlate] = useState(false)
+  const [newTypeWithoutPlate, setNewTypeWithoutPlate] = useState(false)
   const [newTypeItems, setNewTypeItems] = useState<MasterTypeItem[]>([])
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
   const [editTypeName, setEditTypeName] = useState("")
   const [editTypeClassification, setEditTypeClassification] = useState<"internal" | "external">("internal")
+  const [editTypeWithPlate, setEditTypeWithPlate] = useState(false)
+  const [editTypeWithoutPlate, setEditTypeWithoutPlate] = useState(false)
   const [editTypeItems, setEditTypeItems] = useState<MasterTypeItem[]>([])
   const [confirmDeleteType, setConfirmDeleteType] = useState<string | null>(null)
   const [typeError, setTypeError] = useState("")
@@ -346,10 +350,6 @@ export default function SettingsPage() {
     setItems(items.map((i) => i.itemId === itemId ? { ...i, [field]: value } : i))
   }
 
-  const toggleTypeItemPlate = (items: MasterTypeItem[], setItems: (i: MasterTypeItem[]) => void, itemId: string, field: "withPlate" | "withoutPlate") => {
-    setItems(items.map((i) => i.itemId === itemId ? { ...i, [field]: !i[field] } : i))
-  }
-
   const validateItemQtys = (items: MasterTypeItem[]): string | null => {
     for (const item of items) {
       if (item.variants && item.variants.length > 0) {
@@ -370,10 +370,12 @@ export default function SettingsPage() {
     const err = validateItemQtys(newTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    addMasterType({ typeName: newTypeName.trim(), classification: newTypeClassification, items: newTypeItems })
+    addMasterType({ typeName: newTypeName.trim(), classification: newTypeClassification, items: newTypeItems, withPlate: newTypeWithPlate, withoutPlate: newTypeWithoutPlate })
     setAddingType(false)
     setNewTypeName("")
     setNewTypeClassification("internal")
+    setNewTypeWithPlate(false)
+    setNewTypeWithoutPlate(false)
     setNewTypeItems([])
   }
 
@@ -383,6 +385,8 @@ export default function SettingsPage() {
     setEditingTypeId(id)
     setEditTypeName(t.typeName)
     setEditTypeClassification(t.classification || "internal")
+    setEditTypeWithPlate(!!t.withPlate)
+    setEditTypeWithoutPlate(!!t.withoutPlate)
     setEditTypeItems(t.items.map((i) => ({ ...i })))
   }
 
@@ -391,7 +395,7 @@ export default function SettingsPage() {
     const err = validateItemQtys(editTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), classification: editTypeClassification, items: editTypeItems })
+    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), classification: editTypeClassification, items: editTypeItems, withPlate: editTypeWithPlate, withoutPlate: editTypeWithoutPlate })
     setEditingTypeId(null)
   }
 
@@ -416,58 +420,19 @@ export default function SettingsPage() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
         {masterItems.map((mi) => {
           const sel = items.some((i) => i.itemId === mi.id)
-          const hit = sel ? items.find((i) => i.itemId === mi.id) : null
           return (
-            <div key={mi.id} style={{
-              display: "flex", alignItems: "center", gap: "var(--space-3)",
+            <label key={mi.id} style={{
+              display: "flex", alignItems: "center", gap: "var(--space-2)",
               padding: "var(--space-2) var(--space-3)",
               background: sel ? "var(--color-primary-soft)" : "var(--color-surface)",
               border: sel ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
+              borderRadius: "var(--radius-md)", cursor: "pointer",
+              fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 500,
+              color: sel ? "var(--color-primary)" : "var(--color-text-muted)",
             }}>
-              <label style={{
-                display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer",
-                fontFamily: "var(--font-display)", fontSize: "0.8125rem", fontWeight: 500,
-                color: sel ? "var(--color-primary)" : "var(--color-text-muted)",
-              }}>
-                <input type="checkbox" checked={sel} onChange={() => toggleTypeItem(items, setItems, mi.id, mi.name)} style={{ accentColor: "var(--color-primary)" }} />
-                {mi.name}
-              </label>
-              {/* Plate flags travel with the item selection so the user can
-                  tick them in one place. Disabled until the item itself is
-                  selected. They edit the same fields as the per-item card
-                  below — either surface works. */}
-              <label style={{
-                display: "flex", alignItems: "center", gap: 4, cursor: sel ? "pointer" : "not-allowed",
-                opacity: sel ? 1 : 0.4,
-                fontFamily: "var(--font-body)", fontSize: "0.6875rem",
-                color: "var(--color-text-muted)", whiteSpace: "nowrap",
-              }}>
-                <input
-                  type="checkbox"
-                  disabled={!sel}
-                  checked={!!hit?.withPlate}
-                  onChange={() => sel && toggleTypeItemPlate(items, setItems, mi.id, "withPlate")}
-                  style={{ accentColor: "var(--color-primary)" }}
-                />
-                W/Plate
-              </label>
-              <label style={{
-                display: "flex", alignItems: "center", gap: 4, cursor: sel ? "pointer" : "not-allowed",
-                opacity: sel ? 1 : 0.4,
-                fontFamily: "var(--font-body)", fontSize: "0.6875rem",
-                color: "var(--color-text-muted)", whiteSpace: "nowrap",
-              }}>
-                <input
-                  type="checkbox"
-                  disabled={!sel}
-                  checked={!!hit?.withoutPlate}
-                  onChange={() => sel && toggleTypeItemPlate(items, setItems, mi.id, "withoutPlate")}
-                  style={{ accentColor: "var(--color-primary)" }}
-                />
-                W/o Plate
-              </label>
-            </div>
+              <input type="checkbox" checked={sel} onChange={() => toggleTypeItem(items, setItems, mi.id, mi.name)} style={{ accentColor: "var(--color-primary)" }} />
+              {mi.name}
+            </label>
           )
         })}
       </div>
@@ -531,18 +496,6 @@ export default function SettingsPage() {
                     <label style={labelStyle}>Model</label>
                     <input value={item.model} onChange={(e) => updateTypeItemField(items, setItems, item.itemId, "model", e.target.value)} placeholder="Model" style={{ ...inputStyle, height: 32, fontSize: "0.75rem" }} />
                   </div>
-                </div>
-                {/* Per-item plate flags. Each drives a "Yes"/blank sub-column
-                    next to the item in every generated PDF. */}
-                <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginTop: "var(--space-1)" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
-                    <input type="checkbox" checked={!!item.withPlate} onChange={() => toggleTypeItemPlate(items, setItems, item.itemId, "withPlate")} style={{ accentColor: "var(--color-primary)" }} />
-                    With Plate
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", cursor: "pointer" }}>
-                    <input type="checkbox" checked={!!item.withoutPlate} onChange={() => toggleTypeItemPlate(items, setItems, item.itemId, "withoutPlate")} style={{ accentColor: "var(--color-primary)" }} />
-                    Without Plate
-                  </label>
                 </div>
                 {hasVariants && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", paddingLeft: "var(--space-3)", borderLeft: "2px solid var(--color-primary-soft)" }}>
@@ -839,7 +792,7 @@ export default function SettingsPage() {
             <div style={{ marginBottom: "var(--space-3)" }}>
               <label style={labelStyle}>Type Name</label>
               <input value={newTypeName} onChange={(e) => { setNewTypeName(e.target.value); setTypeError("") }} placeholder="e.g. L01" style={{ ...inputStyle, maxWidth: 200, fontWeight: 600 }} />
-              <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+              <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-2)", flexWrap: "wrap", alignItems: "center" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
                   <input type="radio" checked={newTypeClassification === "internal"} onChange={() => setNewTypeClassification("internal")} />
                   Internal
@@ -847,6 +800,15 @@ export default function SettingsPage() {
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
                   <input type="radio" checked={newTypeClassification === "external"} onChange={() => setNewTypeClassification("external")} />
                   External
+                </label>
+                <span style={{ width: 1, height: 18, background: "var(--color-border)" }} />
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                  <input type="checkbox" checked={newTypeWithPlate} onChange={() => setNewTypeWithPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
+                  With Plate
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                  <input type="checkbox" checked={newTypeWithoutPlate} onChange={() => setNewTypeWithoutPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
+                  Without Plate
                 </label>
               </div>
             </div>
@@ -878,7 +840,7 @@ export default function SettingsPage() {
                     <div style={{ marginBottom: "var(--space-3)" }}>
                       <label style={labelStyle}>Type Name</label>
                       <input value={editTypeName} onChange={(e) => setEditTypeName(e.target.value)} style={{ ...inputStyle, maxWidth: 200, fontWeight: 600 }} />
-                      <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+                      <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-2)", flexWrap: "wrap", alignItems: "center" }}>
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
                           <input type="radio" checked={editTypeClassification === "internal"} onChange={() => setEditTypeClassification("internal")} />
                           Internal
@@ -886,6 +848,15 @@ export default function SettingsPage() {
                         <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
                           <input type="radio" checked={editTypeClassification === "external"} onChange={() => setEditTypeClassification("external")} />
                           External
+                        </label>
+                        <span style={{ width: 1, height: 18, background: "var(--color-border)" }} />
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                          <input type="checkbox" checked={editTypeWithPlate} onChange={() => setEditTypeWithPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
+                          With Plate
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                          <input type="checkbox" checked={editTypeWithoutPlate} onChange={() => setEditTypeWithoutPlate((v) => !v)} style={{ accentColor: "var(--color-primary)" }} />
+                          Without Plate
                         </label>
                       </div>
                     </div>
@@ -900,6 +871,8 @@ export default function SettingsPage() {
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 600, color: "var(--color-text)" }}>{mt.typeName}</span>
+                    {mt.withPlate && <StatusBadge variant="info">With Plate</StatusBadge>}
+                    {mt.withoutPlate && <StatusBadge variant="info">Without Plate</StatusBadge>}
                     {mt.items.map((i) => {
                       const hasVars = i.variants && i.variants.length > 0
                       const label = hasVars
