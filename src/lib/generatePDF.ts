@@ -58,29 +58,72 @@ function normVariant(label: string): string {
   return label.trim().toLowerCase()
 }
 
-/** Look up the (variant-aware) model for the given row+item. Variant model
- *  wins over the parent item model; falls back to the parent. Used to render
- *  "<qty> (<model>)" inside item cells in both renderers. */
-function modelForRow(
-  typeConfigs: SupportTypeConfig[],
-  row: SupportRow,
-  itemName: string,
-  variantLabel: string,
-): string {
-  const t = row.type.trim().toLowerCase()
-  const cls = row.classification ?? "internal"
-  const tc =
-    typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t && (c.classification ?? "internal") === cls) ||
-    typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t)
-  if (!tc) return ""
-  const item = tc.items.find((i) => i.itemName === itemName)
-  if (!item) return ""
-  if (variantLabel && item.variants) {
-    const vNorm = normVariant(variantLabel)
-    const v = item.variants.find((vv) => normVariant(vv.label) === vNorm)
-    if (v?.model) return v.model
+/** Pick the dominant non-empty material across the rendered rows. Returns ""
+ *  when every row's material is blank. Used to label the item-column headers
+ *  with "ITEM (MATERIAL-MODEL)" — material is per-row in the data model but
+ *  in practice every project sticks with one (e.g. CS+HDG), so a single
+ *  representative value is sufficient. Ties break on most-frequent, then
+ *  first-seen. */
+function dominantMaterial(rows: SupportRow[]): string {
+  const counts = new Map<string, number>()
+  let best = ""
+  let bestCount = 0
+  for (const r of rows) {
+    const m = (r.material ?? "").trim()
+    if (!m) continue
+    const next = (counts.get(m) ?? 0) + 1
+    counts.set(m, next)
+    if (next > bestCount) { best = m; bestCount = next }
   }
-  return item.model || ""
+  return best
+}
+
+/** Build per-itemName model strings for the header (variant items get one
+ *  model per variant label; non-variant items get one model under "" key).
+ *  Distinct values for the same slot are comma-joined so a master+project
+ *  config disagreement is visible rather than silently dropping one. */
+function buildItemModels(typeConfigs: SupportTypeConfig[]): {
+  parent: Map<string, string>
+  variant: Map<string, Map<string, string>>
+} {
+  const parent = new Map<string, Set<string>>()
+  const variant = new Map<string, Map<string, Set<string>>>()
+  for (const tc of typeConfigs) {
+    for (const item of tc.items) {
+      if (item.variants && item.variants.length > 0) {
+        let inner = variant.get(item.itemName)
+        if (!inner) { inner = new Map(); variant.set(item.itemName, inner) }
+        for (const v of item.variants) {
+          const key = normVariant(v.label)
+          let s = inner.get(key)
+          if (!s) { s = new Set(); inner.set(key, s) }
+          const m = (v.model || item.model || "").trim()
+          if (m) s.add(m)
+        }
+      } else {
+        const m = (item.model || "").trim()
+        if (!m) continue
+        let s = parent.get(item.itemName)
+        if (!s) { s = new Set(); parent.set(item.itemName, s) }
+        s.add(m)
+      }
+    }
+  }
+  const parentOut = new Map<string, string>()
+  for (const [k, s] of parent) parentOut.set(k, Array.from(s).join(", "))
+  const variantOut = new Map<string, Map<string, string>>()
+  for (const [k, inner] of variant) {
+    const innerOut = new Map<string, string>()
+    for (const [v, s] of inner) innerOut.set(v, Array.from(s).join(", "))
+    variantOut.set(k, innerOut)
+  }
+  return { parent: parentOut, variant: variantOut }
+}
+
+/** Compose the header text for an item or its variant subcolumn. */
+function composeHeader(name: string, parts: string[]): string {
+  const tail = parts.map((p) => p.trim()).filter(Boolean).join("-")
+  return tail ? `${name} (${tail})` : name
 }
 
 /**
@@ -200,18 +243,29 @@ function logoFormat(dataUrl: string): "PNG" | "JPEG" | "WEBP" {
   return "PNG"
 }
 
+/** Looks like a usable image data URL (data:image/...;base64,...) and is long
+ *  enough to actually contain bytes. Filters out the `0` / empty-string /
+ *  malformed values that historically slipped past `if (logos.left)`. */
+function isUsableLogo(s: unknown): s is string {
+  return typeof s === "string" && s.length > 32 && s.startsWith("data:image/")
+}
+
 /** Add both corner logos to whatever is currently the active page. Safe to
- *  call inside autoTable's didDrawPage so each overflow page keeps them. */
+ *  call inside autoTable's didDrawPage so each overflow page keeps them.
+ *  jsPDF.addImage failures are surfaced via console.warn — silent failure
+ *  was the reason a missing logo was so hard to diagnose previously. */
 function drawLogos(doc: jsPDF, logos: PdfLogos | undefined, pw: number, mx: number): void {
   if (!logos) return
   const y = 5
   const w = 20
   const h = 14
-  if (logos.left) {
-    try { doc.addImage(logos.left, logoFormat(logos.left), mx, y, w, h, undefined, "FAST") } catch { /* ignore */ }
+  if (isUsableLogo(logos.left)) {
+    try { doc.addImage(logos.left, logoFormat(logos.left), mx, y, w, h, undefined, "FAST") }
+    catch (e) { console.warn("[generatePDF] left logo addImage failed:", e) }
   }
-  if (logos.right) {
-    try { doc.addImage(logos.right, logoFormat(logos.right), pw - mx - w, y, w, h, undefined, "FAST") } catch { /* ignore */ }
+  if (isUsableLogo(logos.right)) {
+    try { doc.addImage(logos.right, logoFormat(logos.right), pw - mx - w, y, w, h, undefined, "FAST") }
+    catch (e) { console.warn("[generatePDF] right logo addImage failed:", e) }
   }
 }
 
@@ -243,6 +297,8 @@ function renderTypeSection(params: RenderSectionParams): void {
   const scopedConfigs = typeConfigs.filter((tc) => typesInRows.has(tc.typeName.trim().toLowerCase()))
   const activeConfigs = scopedConfigs.length > 0 ? scopedConfigs : typeConfigs
   const itemCols = buildItemColumns(activeConfigs)
+  const models = buildItemModels(activeConfigs)
+  const material = dominantMaterial(rows)
 
   const itemGroups: { itemName: string; variantLabels: string[] }[] = []
   for (const ic of itemCols) {
@@ -270,14 +326,23 @@ function renderTypeSection(params: RenderSectionParams): void {
   for (const k of activeLengths) headRow2.push({ content: k.toUpperCase(), styles: headStyles })
   headRow1.push({ content: "TOTAL", rowSpan: 2, styles: headStyles })
 
+  // Item headers carry the material + model so cells stay clean (just qty).
+  // Variant items split: parent header keeps the material, each variant's
+  // own model rides under its label in row 2.
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
-    const heading = g.itemName.toUpperCase()
+    const upper = g.itemName.toUpperCase()
     if (isVariant) {
-      headRow1.push({ content: heading, colSpan: g.variantLabels.length, styles: headStyles })
-      for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
+      const parentHeader = composeHeader(upper, [material])
+      headRow1.push({ content: parentHeader, colSpan: g.variantLabels.length, styles: headStyles })
+      const variantModels = models.variant.get(g.itemName)
+      for (const label of g.variantLabels) {
+        const model = variantModels?.get(normVariant(label)) ?? ""
+        headRow2.push({ content: composeHeader(label, [model]), styles: headStyles })
+      }
     } else {
-      headRow1.push({ content: heading, rowSpan: 2, styles: headStyles })
+      const model = models.parent.get(g.itemName) ?? ""
+      headRow1.push({ content: composeHeader(upper, [material, model]), rowSpan: 2, styles: headStyles })
     }
   }
 
@@ -308,10 +373,7 @@ function renderTypeSection(params: RenderSectionParams): void {
     cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {
       const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
-      const qty = readItemValue(row, ic.itemName, ic.variantLabel, isPrimary)
-      if (!qty) { cells.push(""); continue }
-      const model = modelForRow(activeConfigs, row, ic.itemName, ic.variantLabel)
-      cells.push(model ? `${qty} (${model})` : qty)
+      cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
     }
     cells.push(String(row.remarks ?? ""))
     return cells
@@ -359,18 +421,23 @@ function renderTypeSection(params: RenderSectionParams): void {
     },
     alternateRowStyles: { fillColor: [250, 251, 254] },
     theme: "grid",
-    margin: { left: mx, right: mx },
+    margin: { left: mx, right: mx, top: 24, bottom: 8 },
+    // Redraw the page chrome (accent bars + logos + footer) on every page
+    // including overflow ones so logos stay branded top to bottom — matches
+    // renderFlatTable, where this was previously the only place it ran.
+    didDrawPage: () => {
+      doc.setFillColor(...PRIMARY)
+      doc.rect(0, 0, pw, 3, "F")
+      doc.setFillColor(...PRIMARY)
+      doc.rect(0, ph - 3, pw, 3, "F")
+      drawLogos(doc, logos, pw, mx)
+      doc.setFont(fonts.body, "normal")
+      doc.setFontSize(6)
+      doc.setTextColor(...MUTED)
+      doc.text("Support MTO Generator", mx, ph - 5)
+      doc.text(`Generated ${new Date().toLocaleDateString("en-US")}`, pw - mx, ph - 5, { align: "right" })
+    },
   })
-
-  // Bottom bar + footer
-  doc.setFillColor(...PRIMARY)
-  doc.rect(0, ph - 3, pw, 3, "F")
-
-  doc.setFont(fonts.body, "normal")
-  doc.setFontSize(6)
-  doc.setTextColor(...MUTED)
-  doc.text("Support MTO Generator", mx, ph - 5)
-  doc.text(`Generated ${new Date().toLocaleDateString("en-US")}`, pw - mx, ph - 5, { align: "right" })
 }
 
 interface RenderFlatParams {
@@ -404,6 +471,8 @@ function renderFlatTable(params: RenderFlatParams): void {
   // Union of item columns across every configured type — mixed-type rows need
   // the full column set so each row can fill in just its own items.
   const itemCols = buildItemColumns(typeConfigs)
+  const models = buildItemModels(typeConfigs)
+  const material = dominantMaterial(rows)
 
   const itemGroups: { itemName: string; variantLabels: string[] }[] = []
   for (const ic of itemCols) {
@@ -433,12 +502,18 @@ function renderFlatTable(params: RenderFlatParams): void {
 
   for (const g of itemGroups) {
     const isVariant = g.variantLabels.length > 1 || (g.variantLabels.length === 1 && g.variantLabels[0] !== "")
-    const heading = g.itemName.toUpperCase()
+    const upper = g.itemName.toUpperCase()
     if (isVariant) {
-      headRow1.push({ content: heading, colSpan: g.variantLabels.length, styles: headStyles })
-      for (const label of g.variantLabels) headRow2.push({ content: label, styles: headStyles })
+      const parentHeader = composeHeader(upper, [material])
+      headRow1.push({ content: parentHeader, colSpan: g.variantLabels.length, styles: headStyles })
+      const variantModels = models.variant.get(g.itemName)
+      for (const label of g.variantLabels) {
+        const model = variantModels?.get(normVariant(label)) ?? ""
+        headRow2.push({ content: composeHeader(label, [model]), styles: headStyles })
+      }
     } else {
-      headRow1.push({ content: heading, rowSpan: 2, styles: headStyles })
+      const model = models.parent.get(g.itemName) ?? ""
+      headRow1.push({ content: composeHeader(upper, [material, model]), rowSpan: 2, styles: headStyles })
     }
   }
 
@@ -468,10 +543,7 @@ function renderFlatTable(params: RenderFlatParams): void {
     cells.push(totalForRow(row, mapping))
     for (const ic of itemCols) {
       const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
-      const qty = readItemValue(row, ic.itemName, ic.variantLabel, isPrimary)
-      if (!qty) { cells.push(""); continue }
-      const model = modelForRow(typeConfigs, row, ic.itemName, ic.variantLabel)
-      cells.push(model ? `${qty} (${model})` : qty)
+      cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
     }
     cells.push(String(row.remarks ?? ""))
     return cells

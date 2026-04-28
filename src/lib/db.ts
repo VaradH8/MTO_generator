@@ -96,6 +96,110 @@ async function runMigrations(): Promise<void> {
       console.error("[db] migration failed:", sql, err)
     }
   }
+
+  await syncProjectTypesToMasterOnce()
+}
+
+/** One-time backfill: copy every project-defined support type that is NOT
+ *  already present in master_types (matched by name + classification) up to
+ *  master_types, including its items. Idempotent — gated by a settings-row
+ *  flag so subsequent boots skip the work. Strictly additive: never deletes
+ *  or modifies an existing master_type row. */
+async function syncProjectTypesToMasterOnce(): Promise<void> {
+  const flagKey = "migration.master_types_from_projects_v1"
+  try {
+    const { rows: flagRows } = await pool.query(
+      `SELECT 1 FROM settings WHERE key = $1`,
+      [flagKey],
+    )
+    if (flagRows.length > 0) return
+
+    const { rows: projTypes } = await pool.query(
+      `SELECT id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty
+         FROM project_support_types`,
+    )
+    if (projTypes.length === 0) {
+      await pool.query(
+        `INSERT INTO settings (key, value) VALUES ($1, 'done') ON CONFLICT (key) DO NOTHING`,
+        [flagKey],
+      )
+      return
+    }
+
+    const { rows: masterRows } = await pool.query(
+      `SELECT type_name, classification FROM master_types`,
+    )
+    const masterKey = (n: string, c: string) => `${(n || "").trim().toLowerCase()}::${c || "internal"}`
+    const masterKeys = new Set<string>(
+      masterRows.map((m: { type_name: string; classification: string }) =>
+        masterKey(m.type_name, m.classification),
+      ),
+    )
+
+    const seen = new Set<string>()
+    const toCopy: typeof projTypes = []
+    for (const pt of projTypes) {
+      const key = masterKey(pt.type_name, pt.classification)
+      if (masterKeys.has(key) || seen.has(key)) continue
+      seen.add(key)
+      toCopy.push(pt)
+    }
+
+    let added = 0
+    for (const pt of toCopy) {
+      const newId = "mig_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+      await pool.query(
+        `INSERT INTO master_types (id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          newId,
+          pt.type_name,
+          pt.classification || "internal",
+          !!pt.with_plate,
+          !!pt.without_plate,
+          pt.with_plate_qty || "",
+          pt.without_plate_qty || "",
+        ],
+      )
+      const { rows: items } = await pool.query(
+        `SELECT item_id, item_name, qty, make, model, variants, with_plate, without_plate
+           FROM project_type_items WHERE project_support_type_id = $1`,
+        [pt.id],
+      )
+      for (const it of items) {
+        const variantsJson =
+          Array.isArray(it.variants) ? JSON.stringify(it.variants)
+          : typeof it.variants === "string" ? it.variants
+          : "[]"
+        await pool.query(
+          `INSERT INTO master_type_items (master_type_id, item_id, item_name, qty, make, model, variants, with_plate, without_plate)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+          [
+            newId,
+            it.item_id || "",
+            it.item_name || "",
+            it.qty || "",
+            it.make || "",
+            it.model || "",
+            variantsJson,
+            !!it.with_plate,
+            !!it.without_plate,
+          ],
+        )
+      }
+      added++
+    }
+
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ($1, 'done') ON CONFLICT (key) DO NOTHING`,
+      [flagKey],
+    )
+    if (added > 0) {
+      console.log(`[db] synced ${added} project types into master_types`)
+    }
+  } catch (err) {
+    console.error("[db] syncProjectTypesToMasterOnce failed:", err)
+  }
 }
 
 export function ensureMigrations(): Promise<void> {

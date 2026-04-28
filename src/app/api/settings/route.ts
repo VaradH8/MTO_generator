@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import pool, { ensureMigrations } from "@/lib/db"
 
-const DEFAULT_PDF_CONFIG = {
-  pageSize: "A4",
-  orientation: "landscape",
-  fontSize: 10,
-  headerFontSize: 14,
-  showLogo: true,
-  showPageNumbers: true,
+// Server-side defaults are intentionally string-only and aligned with the
+// client's PdfConfig shape. Storing the logo data URL here goes through the
+// settings key-value table as plain TEXT — every value is round-tripped as
+// a string with NO numeric/boolean coercion. The previous coercion turned
+// empty-string fields into the number 0 on read, which overrode the client
+// defaults and caused subtle PDF rendering bugs (notably the missing logo
+// when the data URL happened to round-trip via a coercion path).
+const DEFAULT_PDF_CONFIG: Record<string, string> = {
+  headerText: "Support MTO",
+  footerText: "Support MTO Generator",
+  primaryColor: "#1F3CA8",
+  leftLogoDataUrl: "",
+  rightLogoDataUrl: "",
 }
 
 // GET /api/settings — return master items, types, and pdf config
@@ -59,22 +65,19 @@ export async function GET(_req: NextRequest) {
       })
     )
 
-    // PDF config — try to read from settings table, fall back to defaults
-    let pdfConfig = { ...DEFAULT_PDF_CONFIG }
+    // PDF config — every key under `pdf.*` is read back as the verbatim
+    // string the client wrote (no boolean/number coercion). Skips the
+    // `pdf.config.*` migration metadata namespace. Falls back to defaults
+    // when the settings table is empty or unreadable.
+    const pdfConfig: Record<string, string> = { ...DEFAULT_PDF_CONFIG }
     try {
       const { rows: configRows } = await pool.query(
         `SELECT key, value FROM settings WHERE key LIKE 'pdf.%'`
       )
-      if (configRows.length > 0) {
-        for (const row of configRows) {
-          const shortKey = row.key.replace("pdf.", "")
-          const val = row.value
-          // Parse booleans and numbers
-          if (val === "true") (pdfConfig as Record<string, unknown>)[shortKey] = true
-          else if (val === "false") (pdfConfig as Record<string, unknown>)[shortKey] = false
-          else if (!isNaN(Number(val))) (pdfConfig as Record<string, unknown>)[shortKey] = Number(val)
-          else (pdfConfig as Record<string, unknown>)[shortKey] = val
-        }
+      for (const row of configRows) {
+        const shortKey = String(row.key).replace(/^pdf\./, "")
+        if (!shortKey) continue
+        pdfConfig[shortKey] = row.value == null ? "" : String(row.value)
       }
     } catch {
       // Settings table may not exist yet — use defaults
