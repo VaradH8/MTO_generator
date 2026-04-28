@@ -113,7 +113,7 @@ export default function OutputPage() {
     setXlsxStatus((s) => ({ ...s, [type]: "downloading" }))
     try {
       const rows = groupedSupports[type]
-      const blob = await generateExcel(type, rows, currentProjectName, typeConfigs, projectMapping)
+      const blob = await generateExcel(type, rows, currentProjectName, typeConfigs, projectMapping, pdfLogos)
       triggerDownload(blob, `${type}-supports.xlsx`)
       setXlsxStatus((s) => ({ ...s, [type]: "ready" }))
     } catch {
@@ -140,7 +140,7 @@ export default function OutputPage() {
     if (!groupedSupports) return
     setCombinedXlsxStatus("downloading")
     try {
-      const blob = await generateCombinedExcel(groupedSupports, currentProjectName, typeConfigs, projectMapping)
+      const blob = await generateCombinedExcel(groupedSupports, currentProjectName, typeConfigs, projectMapping, pdfLogos)
       const base = (currentProjectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_combined.xlsx`)
       setCombinedXlsxStatus("ready")

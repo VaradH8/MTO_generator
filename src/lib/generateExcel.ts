@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx"
+import JSZip from "jszip"
 import { LENGTH_KEYS } from "@/types/support"
 import type { SupportRow, SupportTypeConfig, GroupedSupports, TypeMapping } from "@/types/support"
 import {
@@ -12,6 +13,7 @@ import {
   readItemValue,
   maxLengthKey,
   totalForRow,
+  type PdfLogos,
 } from "./generatePDF"
 
 type ProjectMapping = Record<string, TypeMapping>
@@ -222,6 +224,213 @@ function workbookToBlob(wb: XLSX.WorkBook): Blob {
   return new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
 }
 
+/* ─────────────────────────── Logo injection ───────────────────────────
+ *
+ * The community sheetjs build cannot write images. To match the PDF (which
+ * carries the user's uploaded logo at the top corners of every page), we
+ * post-process the generated .xlsx zip and inject the OOXML drawing parts
+ * by hand. Strictly additive — every artifact lives in fresh paths, so
+ * existing sheet content is untouched.
+ *
+ * For a single-sheet workbook (which is all generateExcel produces) the
+ * additions are:
+ *   xl/media/image1.<ext>            — the logo file bytes
+ *   xl/media/image2.<ext>            — optional right logo
+ *   xl/drawings/drawing1.xml         — anchor + size + image refs
+ *   xl/drawings/_rels/drawing1.xml.rels
+ *   xl/worksheets/_rels/sheet1.xml.rels  (created or merged)
+ *   xl/worksheets/sheet1.xml         (one <drawing r:id="..."/> appended)
+ *   [Content_Types].xml              (Default + Override entries)
+ */
+
+interface ParsedLogo {
+  ext: "png" | "jpeg"
+  body: string
+}
+
+/** Decode a `data:image/png;base64,...` URL into the bits xlsx needs. WEBP
+ *  isn't supported by older Excel builds so it's filtered out — the PDF
+ *  still renders it; the .xlsx silently skips it. */
+function parseLogoDataUrl(dataUrl: string | undefined): ParsedLogo | null {
+  if (!dataUrl || typeof dataUrl !== "string") return null
+  const m = dataUrl.match(/^data:image\/(png|jpe?g);base64,(.+)$/i)
+  if (!m) return null
+  const ext = m[1].toLowerCase().replace("jpg", "jpeg") as "png" | "jpeg"
+  return { ext, body: m[2] }
+}
+
+const SHEET_PATH = "xl/worksheets/sheet1.xml"
+const SHEET_RELS_PATH = "xl/worksheets/_rels/sheet1.xml.rels"
+
+function buildDrawingXml(images: { rId: string; isLeft: boolean; sheetWidth: number }[]): string {
+  // ~25mm × 18mm in EMU (914400 per inch, 360000 per cm).
+  const cx = 900000
+  const cy = 648000
+  const anchors = images
+    .map((img, idx) => {
+      const fromCol = img.isLeft ? 0 : Math.max(0, img.sheetWidth - 1)
+      return `  <xdr:oneCellAnchor>
+    <xdr:from>
+      <xdr:col>${fromCol}</xdr:col>
+      <xdr:colOff>0</xdr:colOff>
+      <xdr:row>0</xdr:row>
+      <xdr:rowOff>0</xdr:rowOff>
+    </xdr:from>
+    <xdr:ext cx="${cx}" cy="${cy}"/>
+    <xdr:pic>
+      <xdr:nvPicPr>
+        <xdr:cNvPr id="${idx + 1}" name="Logo${idx + 1}"/>
+        <xdr:cNvPicPr/>
+      </xdr:nvPicPr>
+      <xdr:blipFill>
+        <a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${img.rId}"/>
+        <a:stretch><a:fillRect/></a:stretch>
+      </xdr:blipFill>
+      <xdr:spPr>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+      </xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:oneCellAnchor>`
+    })
+    .join("\n")
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+${anchors}
+</xdr:wsDr>`
+}
+
+function buildDrawingRels(rels: { rId: string; target: string }[]): string {
+  const items = rels
+    .map(
+      (r) =>
+        `  <Relationship Id="${r.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${r.target}"/>`,
+    )
+    .join("\n")
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${items}
+</Relationships>`
+}
+
+/** Pick the next free `rIdN` for a rels XML doc. Each rels file has its own
+ *  Id namespace so we count locally to avoid colliding with sheetjs's own
+ *  shared-strings / styles relationships. */
+function nextRelId(xml: string): string {
+  let max = 0
+  for (const m of xml.matchAll(/Id="rId(\d+)"/g)) {
+    const n = parseInt(m[1], 10)
+    if (n > max) max = n
+  }
+  return `rId${max + 1}`
+}
+
+/** Append a single `<Relationship>` to a rels XML, creating the file if it
+ *  didn't exist. Returns the chosen rId. */
+function appendRel(existing: string | null, type: string, target: string): { xml: string; id: string } {
+  if (!existing || !existing.trim()) {
+    const id = "rId1"
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="${id}" Type="${type}" Target="${target}"/>
+</Relationships>`
+    return { xml, id }
+  }
+  const id = nextRelId(existing)
+  const xml = existing.replace(
+    /<\/Relationships>\s*$/,
+    `  <Relationship Id="${id}" Type="${type}" Target="${target}"/>\n</Relationships>`,
+  )
+  return { xml, id }
+}
+
+/** Add the `<drawing r:id="..."/>` reference to the worksheet XML. Per the
+ *  OOXML schema the drawing element must appear toward the end of
+ *  `<worksheet>`, so injecting just before `</worksheet>` is safe. */
+function attachDrawingToSheet(sheetXml: string, drawingRelId: string): string {
+  if (sheetXml.includes("<drawing ")) return sheetXml
+  return sheetXml.replace(/<\/worksheet>\s*$/, `<drawing r:id="${drawingRelId}"/></worksheet>`)
+}
+
+/** Make sure [Content_Types].xml declares the image extensions and the
+ *  drawing override. The Default Extension entries are idempotent — if the
+ *  extension is already declared (e.g., sheetjs already added "png" for
+ *  some reason), we skip. */
+function patchContentTypes(xml: string, exts: Set<string>, drawingPart: string): string {
+  let out = xml
+  for (const ext of exts) {
+    const mime = ext === "jpeg" ? "image/jpeg" : `image/${ext}`
+    if (!new RegExp(`Default[^/]*Extension="${ext}"`).test(out)) {
+      out = out.replace(
+        /<Types([^>]*)>/,
+        `<Types$1><Default Extension="${ext}" ContentType="${mime}"/>`,
+      )
+    }
+  }
+  if (!out.includes(`PartName="${drawingPart}"`)) {
+    out = out.replace(
+      /<\/Types>\s*$/,
+      `<Override PartName="${drawingPart}" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`,
+    )
+  }
+  return out
+}
+
+async function injectLogosIntoXlsx(blob: Blob, logos: PdfLogos | undefined, sheetWidth: number): Promise<Blob> {
+  const left = parseLogoDataUrl(logos?.left)
+  const right = parseLogoDataUrl(logos?.right)
+  if (!left && !right) return blob
+
+  const buf = await blob.arrayBuffer()
+  const zip = await JSZip.loadAsync(buf)
+
+  const drawingRels: { rId: string; target: string }[] = []
+  const exts = new Set<string>()
+  const anchors: { rId: string; isLeft: boolean; sheetWidth: number }[] = []
+
+  let imgIdx = 0
+  if (left) {
+    imgIdx++
+    const file = `image${imgIdx}.${left.ext}`
+    zip.file(`xl/media/${file}`, left.body, { base64: true })
+    drawingRels.push({ rId: `rId${imgIdx}`, target: `../media/${file}` })
+    anchors.push({ rId: `rId${imgIdx}`, isLeft: true, sheetWidth })
+    exts.add(left.ext)
+  }
+  if (right) {
+    imgIdx++
+    const file = `image${imgIdx}.${right.ext}`
+    zip.file(`xl/media/${file}`, right.body, { base64: true })
+    drawingRels.push({ rId: `rId${imgIdx}`, target: `../media/${file}` })
+    anchors.push({ rId: `rId${imgIdx}`, isLeft: false, sheetWidth })
+    exts.add(right.ext)
+  }
+
+  zip.file("xl/drawings/drawing1.xml", buildDrawingXml(anchors))
+  zip.file("xl/drawings/_rels/drawing1.xml.rels", buildDrawingRels(drawingRels))
+
+  // Sheet rels — append the drawing relationship (sheetjs doesn't always
+  // emit this file for plain sheets, so appendRel handles the missing case).
+  const existingSheetRels = (await zip.file(SHEET_RELS_PATH)?.async("text")) ?? null
+  const drawingRel = appendRel(
+    existingSheetRels,
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing",
+    "../drawings/drawing1.xml",
+  )
+  zip.file(SHEET_RELS_PATH, drawingRel.xml)
+
+  const sheetXml = await zip.file(SHEET_PATH)!.async("text")
+  zip.file(SHEET_PATH, attachDrawingToSheet(sheetXml, drawingRel.id))
+
+  const ctXml = await zip.file("[Content_Types].xml")!.async("text")
+  zip.file("[Content_Types].xml", patchContentTypes(ctXml, exts, "/xl/drawings/drawing1.xml"))
+
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  })
+}
+
 /** Per-type Excel — one sheet, same layout as a per-type PDF. */
 export async function generateExcel(
   type: string,
@@ -229,13 +438,15 @@ export async function generateExcel(
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
   mapping?: ProjectMapping,
+  logos?: PdfLogos,
 ): Promise<Blob> {
   const schema = buildSchema({ rows, typeConfigs, scopeToRows: true }, mapping)
   const subtitle = `${projectName ? `${projectName} | ` : ""}${rows.length} supports`
   const ws = buildSheet({ title: `Support Schedule — ${type}`, subtitle, schema })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, type.slice(0, 31) || "Schedule")
-  return workbookToBlob(wb)
+  const blob = workbookToBlob(wb)
+  return injectLogosIntoXlsx(blob, logos, schema.width)
 }
 
 /** Combined Excel — every row across every type in one continuous sheet,
@@ -245,6 +456,7 @@ export async function generateCombinedExcel(
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
   mapping?: ProjectMapping,
+  logos?: PdfLogos,
 ): Promise<Blob> {
   const allRows: SupportRow[] = []
   const typesUsed: string[] = []
@@ -262,7 +474,8 @@ export async function generateCombinedExcel(
   const ws = buildSheet({ title: "Support Schedule — Combined", subtitle, schema })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "Combined")
-  return workbookToBlob(wb)
+  const blob = workbookToBlob(wb)
+  return injectLogosIntoXlsx(blob, logos, schema.width)
 }
 
 /** Selection Excel — explicit row set, same layout. Same as combined but
@@ -272,6 +485,7 @@ export async function generateSelectionExcel(
   projectName?: string,
   typeConfigs: SupportTypeConfig[] = [],
   mapping?: ProjectMapping,
+  logos?: PdfLogos,
 ): Promise<Blob> {
   const buckets: Record<string, SupportRow[]> = {}
   for (const r of rows) {
@@ -291,5 +505,6 @@ export async function generateSelectionExcel(
   const ws = buildSheet({ title: "Support Schedule — Selection", subtitle, schema })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "Selection")
-  return workbookToBlob(wb)
+  const blob = workbookToBlob(wb)
+  return injectLogosIntoXlsx(blob, logos, schema.width)
 }

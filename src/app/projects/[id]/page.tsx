@@ -215,7 +215,7 @@ export default function ProjectDetailPage() {
         return
       }
       const filteredConfigs = filterConfigs(typeConfigs, combinedFilter)
-      const blob = await generateCombinedExcel(groupByType(filteredRows), projectName, filteredConfigs, projectMapping)
+      const blob = await generateCombinedExcel(groupByType(filteredRows), projectName, filteredConfigs, projectMapping, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       const suffix = combinedFilter === "all" ? "combined" : combinedFilter
       triggerDownload(blob, `${base}_${suffix}.xlsx`)
@@ -270,7 +270,7 @@ export default function ProjectDetailPage() {
     setSelectionXlsxStatus("downloading")
     try {
       const selRows = tableRows.filter((r) => effectiveSelection.has(r._rowIndex))
-      const blob = await generateSelectionExcel(selRows, projectName, typeConfigs, projectMapping)
+      const blob = await generateSelectionExcel(selRows, projectName, typeConfigs, projectMapping, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_selected_${selRows.length}.xlsx`)
       setSelectionXlsxStatus("ready")
