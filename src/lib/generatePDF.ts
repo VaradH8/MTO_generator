@@ -33,6 +33,12 @@ export const PRE_LENGTH: { key: keyof SupportRow | "withPlate" | "withoutPlate";
   { key: "withoutPlate", label: "WITHOUT PLATE" },
 ]
 
+/** Explicit cell widths for the meta columns (PRE_LENGTH) — the autoTable
+ *  default sizes columns by content, which squishes "240-S2N-L1-1016" tag
+ *  numbers into a column too narrow to hold them and forces a linebreak.
+ *  Widths are in mm (autoTable's unit), tuned for body font 6.5pt. */
+const META_COL_WIDTHS_MM = [10, 10, 25, 10, 16, 12, 12] as const
+
 /** Resolve the type-level plate quantities for a row by matching its type +
  *  classification against the project's typeConfigs. Falls back to a
  *  classification-agnostic match, then to empty strings (column blank). */
@@ -80,14 +86,18 @@ export function dominantMaterial(rows: SupportRow[]): string {
 
 /** Build per-itemName model strings for the header (variant items get one
  *  model per variant label; non-variant items get one model under "" key).
- *  Distinct values for the same slot are comma-joined so a master+project
- *  config disagreement is visible rather than silently dropping one. */
+ *  Keeps only the FIRST non-empty model encountered per slot — joining
+ *  every distinct model from every type config used to produce header
+ *  strings like "L ANGLE (CS+HDG-S2N2501C, S2N3501C, S2N4501C)" that wrapped
+ *  to multiple lines and made the table unreadable. First-seen is
+ *  deterministic given the configured-types order, which is the same order
+ *  the user sees in Settings, so the rendered model is predictable. */
 export function buildItemModels(typeConfigs: SupportTypeConfig[]): {
   parent: Map<string, string>
   variant: Map<string, Map<string, string>>
 } {
-  const parent = new Map<string, Set<string>>()
-  const variant = new Map<string, Map<string, Set<string>>>()
+  const parent = new Map<string, string>()
+  const variant = new Map<string, Map<string, string>>()
   for (const tc of typeConfigs) {
     for (const item of tc.items) {
       if (item.variants && item.variants.length > 0) {
@@ -95,29 +105,18 @@ export function buildItemModels(typeConfigs: SupportTypeConfig[]): {
         if (!inner) { inner = new Map(); variant.set(item.itemName, inner) }
         for (const v of item.variants) {
           const key = normVariant(v.label)
-          let s = inner.get(key)
-          if (!s) { s = new Set(); inner.set(key, s) }
+          if (inner.has(key)) continue
           const m = (v.model || item.model || "").trim()
-          if (m) s.add(m)
+          if (m) inner.set(key, m)
         }
       } else {
+        if (parent.has(item.itemName)) continue
         const m = (item.model || "").trim()
-        if (!m) continue
-        let s = parent.get(item.itemName)
-        if (!s) { s = new Set(); parent.set(item.itemName, s) }
-        s.add(m)
+        if (m) parent.set(item.itemName, m)
       }
     }
   }
-  const parentOut = new Map<string, string>()
-  for (const [k, s] of parent) parentOut.set(k, Array.from(s).join(", "))
-  const variantOut = new Map<string, Map<string, string>>()
-  for (const [k, inner] of variant) {
-    const innerOut = new Map<string, string>()
-    for (const [v, s] of inner) innerOut.set(v, Array.from(s).join(", "))
-    variantOut.set(k, innerOut)
-  }
-  return { parent: parentOut, variant: variantOut }
+  return { parent, variant }
 }
 
 /** Compose the header text for an item or its variant subcolumn. */
@@ -410,6 +409,12 @@ function renderTypeSection(params: RenderSectionParams): void {
       lineWidth: 0.15,
       halign: "center",
       valign: "middle",
+      // Tag numbers like "240-S2N-L1-1016" otherwise wrap mid-string when
+      // the autoTable column-fit algorithm narrows their column. 'visible'
+      // keeps a single-line render and the explicit META_COL_WIDTHS_MM
+      // entries below give each meta column enough room that the overflow
+      // doesn't actually visibly cross into the neighbour.
+      overflow: "visible",
     },
     headStyles: {
       fillColor: PRIMARY,
@@ -418,7 +423,12 @@ function renderTypeSection(params: RenderSectionParams): void {
       font: fonts.display,
       fontStyle: "bold",
       cellPadding: 2,
+      overflow: "visible",
     },
+    columnStyles: META_COL_WIDTHS_MM.reduce<Record<number, { cellWidth: number }>>((acc, w, i) => {
+      acc[i] = { cellWidth: w }
+      return acc
+    }, {}),
     alternateRowStyles: { fillColor: [250, 251, 254] },
     theme: "grid",
     margin: { left: mx, right: mx, top: 24, bottom: 8 },
@@ -576,6 +586,7 @@ function renderFlatTable(params: RenderFlatParams): void {
       lineWidth: 0.15,
       halign: "center",
       valign: "middle",
+      overflow: "visible",
     },
     headStyles: {
       fillColor: PRIMARY,
@@ -584,7 +595,12 @@ function renderFlatTable(params: RenderFlatParams): void {
       font: fonts.display,
       fontStyle: "bold",
       cellPadding: 2,
+      overflow: "visible",
     },
+    columnStyles: META_COL_WIDTHS_MM.reduce<Record<number, { cellWidth: number }>>((acc, w, i) => {
+      acc[i] = { cellWidth: w }
+      return acc
+    }, {}),
     alternateRowStyles: { fillColor: [250, 251, 254] },
     theme: "grid",
     margin: { left: mx, right: mx, top: 24, bottom: 8 },

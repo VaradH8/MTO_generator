@@ -279,9 +279,18 @@ function buildSheet({ title, subtitle, schema, hasLogo }: BuildSheetParams): XLS
   const ws = XLSX.utils.aoa_to_sheet(data)
   ws["!merges"] = merges
 
-  // Column widths — meta columns narrow, header-text columns wider.
+  // Column widths. The first PRE_LENGTH columns (slNo … withoutPlate) get
+  // explicit widths chosen to fit "240-S2N-L1-1016"-style tag numbers without
+  // wrapping. Everything beyond auto-sizes to its header text. Values are in
+  // Excel character-widths (`wch` ≈ 1 Calibri 11pt char ≈ 1.7mm) and mirror
+  // the META_COL_WIDTHS_MM values used by the PDF.
+  const META_WCH = [6, 6, 16, 6, 10, 10, 12] as const
   const cols: { wch: number }[] = []
   for (let i = 0; i < width; i++) {
+    if (i < META_WCH.length) {
+      cols.push({ wch: META_WCH[i] })
+      continue
+    }
     const h1 = flatHead1[i] ?? ""
     const h2 = flatHead2[i] ?? ""
     const headerLen = Math.max(h1.length, h2.length)
