@@ -409,12 +409,6 @@ function renderTypeSection(params: RenderSectionParams): void {
       lineWidth: 0.15,
       halign: "center",
       valign: "middle",
-      // Tag numbers like "240-S2N-L1-1016" otherwise wrap mid-string when
-      // the autoTable column-fit algorithm narrows their column. 'visible'
-      // keeps a single-line render and the explicit META_COL_WIDTHS_MM
-      // entries below give each meta column enough room that the overflow
-      // doesn't actually visibly cross into the neighbour.
-      overflow: "visible",
     },
     headStyles: {
       fillColor: PRIMARY,
@@ -423,8 +417,11 @@ function renderTypeSection(params: RenderSectionParams): void {
       font: fonts.display,
       fontStyle: "bold",
       cellPadding: 2,
-      overflow: "visible",
     },
+    // Pin the seven PRE_LENGTH meta columns to fixed widths so tag numbers
+    // ("240-S2N-L1-1016") get the room they need to render single-line.
+    // Item columns to the right keep their auto-fit behavior so the table
+    // still honors the page margins.
     columnStyles: META_COL_WIDTHS_MM.reduce<Record<number, { cellWidth: number }>>((acc, w, i) => {
       acc[i] = { cellWidth: w }
       return acc
@@ -586,7 +583,6 @@ function renderFlatTable(params: RenderFlatParams): void {
       lineWidth: 0.15,
       halign: "center",
       valign: "middle",
-      overflow: "visible",
     },
     headStyles: {
       fillColor: PRIMARY,
@@ -595,8 +591,9 @@ function renderFlatTable(params: RenderFlatParams): void {
       font: fonts.display,
       fontStyle: "bold",
       cellPadding: 2,
-      overflow: "visible",
     },
+    // See renderTypeSection — same META_COL_WIDTHS_MM pin so the meta block
+    // always has enough room for "240-S2N-L1-1016"-style tag numbers.
     columnStyles: META_COL_WIDTHS_MM.reduce<Record<number, { cellWidth: number }>>((acc, w, i) => {
       acc[i] = { cellWidth: w }
       return acc
