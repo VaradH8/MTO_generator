@@ -38,6 +38,141 @@ export const PRE_LENGTH: { key: keyof SupportRow | "withPlate" | "withoutPlate";
  *  numbers into a column too narrow to hold them and forces a linebreak.
  *  Widths are in mm (autoTable's unit), tuned for body font 6.5pt. */
 const META_COL_WIDTHS_MM = [10, 10, 25, 10, 16, 12, 12] as const
+/** Width pinned per length column (A, B, C, …). Auto-sizing gave 1-3mm
+ *  cells that wrapped 4-digit body values like "1980" into "198"/"0".
+ *  6mm fits 4 digits at 6.5pt with breathing room. */
+const LENGTH_COL_WIDTH_MM = 6
+const TOTAL_COL_WIDTH_MM = 11
+/** Item columns are rendered with a rotated 90° header (vertical text), so
+ *  the column itself can stay narrow without truncating the label. The
+ *  header row is sized to fit the longest label vertically. */
+const ITEM_COL_WIDTH_MM = 9
+const REMARKS_COL_WIDTH_MM = 18
+
+/** Build the autoTable `columnStyles` map for one render. Pins meta, length,
+ *  TOTAL, item, and REMARKS columns to fixed mm widths so neither the
+ *  schema nor the body content is left to guess work. The rotated item
+ *  headers (drawn manually via did/willDrawCell) need a known column width
+ *  to compute their text-anchor x position. */
+function buildColumnStyles(
+  activeLengthCount: number,
+  itemColCount: number,
+): Record<number, { cellWidth: number }> {
+  const out: Record<number, { cellWidth: number }> = {}
+  let idx = 0
+  for (const w of META_COL_WIDTHS_MM) { out[idx++] = { cellWidth: w } }
+  for (let i = 0; i < activeLengthCount; i++) { out[idx++] = { cellWidth: LENGTH_COL_WIDTH_MM } }
+  out[idx++] = { cellWidth: TOTAL_COL_WIDTH_MM }
+  for (let i = 0; i < itemColCount; i++) { out[idx++] = { cellWidth: ITEM_COL_WIDTH_MM } }
+  out[idx++] = { cellWidth: REMARKS_COL_WIDTH_MM }
+  return out
+}
+
+/** Header height (mm) that the rotated text needs. Vertical text at fontSize
+ *  pt occupies roughly fontSize × 0.55mm per character (jsPDF default font).
+ *  35mm fits ~32 chars — covers "OPEN L (CS+HDG-S2N2602C)" comfortably. */
+const ROTATED_HEAD_HEIGHT_MM = 35
+
+/** Render rotated header text in an item-column cell. Called from autoTable's
+ *  didDrawCell after the cell box (fill + border) is already painted. The
+ *  text is drawn 90° counter-clockwise, anchored near the bottom-center so
+ *  it reads bottom-to-top — the universal convention for narrow vertical
+ *  column headers. */
+function drawRotatedHeader(
+  doc: jsPDF,
+  fonts: { display: string; body: string },
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  if (!text.trim()) return
+  doc.setFont(fonts.display, "bold")
+  doc.setFontSize(6)
+  doc.setTextColor(255, 255, 255)
+  // Anchor: horizontally centered, vertically near bottom. With angle 90 the
+  // text grows upward from the anchor, so this places the start of the label
+  // at the bottom of the cell.
+  doc.text(text, x + width / 2 + 1.4, y + height - 1.6, { angle: 90 })
+}
+
+interface ItemHeaderHooks {
+  didParseCell: (data: unknown) => void
+  didDrawCell: (data: unknown) => void
+}
+
+/** Build the autoTable hooks that turn item-column header cells into
+ *  rotated vertical labels. didParseCell zeroes the cell padding and
+ *  stashes the original text on the cell so didDrawCell can render it
+ *  manually after autoTable paints the cell background and borders.
+ *
+ *  itemColStart / itemColEnd are inclusive/exclusive column indices that
+ *  bracket the item columns (everything past TOTAL and before REMARKS).
+ *  Variant parent cells (row 0, colSpan > 1) keep horizontal text — they're
+ *  short ("L ANGLE") and the colSpan'd cell is wide enough.
+ */
+function buildRotatedHeaderHooks(
+  doc: jsPDF,
+  fonts: { display: string; body: string },
+  itemColStart: number,
+  itemColEnd: number,
+): ItemHeaderHooks {
+  type Cell = {
+    text: string[]
+    styles: { minCellHeight?: number; cellPadding?: number; fontSize?: number }
+    colSpan?: number
+    raw?: unknown
+    height?: number
+    x?: number
+    y?: number
+    width?: number
+  }
+  type CellWithStash = Cell & { _rotatedText?: string }
+  type HookData = {
+    section: "head" | "body" | "foot"
+    column: { index: number }
+    row: { index: number }
+    cell: CellWithStash
+  }
+
+  const isItemHeaderCell = (data: HookData): boolean => {
+    if (data.section !== "head") return false
+    const c = data.column.index
+    if (c < itemColStart || c >= itemColEnd) return false
+    // Variant parent in row 0 (colSpan > 1) — keep horizontal.
+    if (data.row.index === 0 && (data.cell.colSpan ?? 1) > 1) return false
+    return true
+  }
+
+  return {
+    didParseCell: (raw: unknown) => {
+      const data = raw as HookData
+      if (!isItemHeaderCell(data)) return
+      data.cell.styles.minCellHeight = ROTATED_HEAD_HEIGHT_MM
+      data.cell.styles.cellPadding = 0
+      data.cell._rotatedText = data.cell.text.join(" ")
+      // Empty the text so autoTable doesn't try to render (and wrap) it
+      // horizontally — drawRotatedHeader will paint the saved string.
+      data.cell.text = []
+    },
+    didDrawCell: (raw: unknown) => {
+      const data = raw as HookData
+      if (!isItemHeaderCell(data)) return
+      const t = data.cell._rotatedText
+      if (!t) return
+      drawRotatedHeader(
+        doc,
+        fonts,
+        t,
+        data.cell.x ?? 0,
+        data.cell.y ?? 0,
+        data.cell.width ?? 0,
+        data.cell.height ?? ROTATED_HEAD_HEIGHT_MM,
+      )
+    },
+  }
+}
 
 /** Resolve the type-level plate quantities for a row by matching its type +
  *  classification against the project's typeConfigs. Falls back to a
@@ -396,6 +531,10 @@ function renderTypeSection(params: RenderSectionParams): void {
   const subtitle = subtitleOverride ?? `${projectName ? `${projectName} | ` : ""}${rows.length} supports`
   doc.text(subtitle, pw / 2, 17, { align: "center" })
 
+  const itemColStart = PRE_LENGTH.length + activeLengths.length + 1
+  const itemColEnd = itemColStart + itemCols.length
+  const rotatedHooks = buildRotatedHeaderHooks(doc, fonts, itemColStart, itemColEnd)
+
   autoTable(doc, {
     startY: 24,
     head: [headRow1, headRow2],
@@ -418,20 +557,19 @@ function renderTypeSection(params: RenderSectionParams): void {
       fontStyle: "bold",
       cellPadding: 2,
     },
-    // Pin the seven PRE_LENGTH meta columns to fixed widths so tag numbers
-    // ("240-S2N-L1-1016") get the room they need to render single-line.
-    // Item columns to the right keep their auto-fit behavior so the table
-    // still honors the page margins.
-    columnStyles: META_COL_WIDTHS_MM.reduce<Record<number, { cellWidth: number }>>((acc, w, i) => {
-      acc[i] = { cellWidth: w }
-      return acc
-    }, {}),
+    // Every column is pinned so the schema doesn't let autoTable's content-
+    // based fit squeeze tag numbers or 4-digit length values. Item-column
+    // headers compensate for the narrow ITEM_COL_WIDTH_MM by rendering
+    // rotated 90° via the rotatedHooks below.
+    columnStyles: buildColumnStyles(activeLengths.length, itemCols.length),
     alternateRowStyles: { fillColor: [250, 251, 254] },
     theme: "grid",
     margin: { left: mx, right: mx, top: 24, bottom: 8 },
+    didParseCell: rotatedHooks.didParseCell,
     // Redraw the page chrome (accent bars + logos + footer) on every page
     // including overflow ones so logos stay branded top to bottom — matches
     // renderFlatTable, where this was previously the only place it ran.
+    didDrawCell: rotatedHooks.didDrawCell,
     didDrawPage: () => {
       doc.setFillColor(...PRIMARY)
       doc.rect(0, 0, pw, 3, "F")
@@ -570,6 +708,10 @@ function renderFlatTable(params: RenderFlatParams): void {
   doc.setTextColor(...MUTED)
   doc.text(subtitle, pw / 2, 17, { align: "center" })
 
+  const itemColStart = PRE_LENGTH.length + activeLengths.length + 1
+  const itemColEnd = itemColStart + itemCols.length
+  const rotatedHooks = buildRotatedHeaderHooks(doc, fonts, itemColStart, itemColEnd)
+
   autoTable(doc, {
     startY: 24,
     head: [headRow1, headRow2],
@@ -592,15 +734,13 @@ function renderFlatTable(params: RenderFlatParams): void {
       fontStyle: "bold",
       cellPadding: 2,
     },
-    // See renderTypeSection — same META_COL_WIDTHS_MM pin so the meta block
-    // always has enough room for "240-S2N-L1-1016"-style tag numbers.
-    columnStyles: META_COL_WIDTHS_MM.reduce<Record<number, { cellWidth: number }>>((acc, w, i) => {
-      acc[i] = { cellWidth: w }
-      return acc
-    }, {}),
+    // Same per-column pinning + rotated item headers as renderTypeSection.
+    columnStyles: buildColumnStyles(activeLengths.length, itemCols.length),
     alternateRowStyles: { fillColor: [250, 251, 254] },
     theme: "grid",
     margin: { left: mx, right: mx, top: 24, bottom: 8 },
+    didParseCell: rotatedHooks.didParseCell,
+    didDrawCell: rotatedHooks.didDrawCell,
     // Redraw the page chrome (accent bars + footer) on every new page that
     // autoTable creates as the table overflows.
     didDrawPage: () => {
