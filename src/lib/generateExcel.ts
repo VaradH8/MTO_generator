@@ -66,6 +66,20 @@ const HEADER_STYLE: CellStyle = {
     right: { style: "thin", color: { rgb: COLOR.border } },
   },
 }
+/** Coerce a body cell string into a number when — and only when — the entire
+ *  string is a clean integer or decimal. Hyphenated tokens like "240-S2N-L1-
+ *  1016", alphabetic strings like "CS+HDG", and empty cells all stay strings
+ *  (an empty cell never becomes 0). Used so length values, totals, and item
+ *  quantities show up as Excel number cells that =SUM can roll up. */
+function asNumberIfNumeric(s: string): string | number {
+  if (typeof s !== "string") return s
+  const trimmed = s.trim()
+  if (trimmed === "") return s
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return s
+  const n = Number(trimmed)
+  return Number.isFinite(n) ? n : s
+}
+
 function bodyStyle(zebra: boolean): CellStyle {
   return {
     font: { name: "Calibri", sz: 9, color: { rgb: COLOR.dark } },
@@ -275,7 +289,16 @@ function buildSheet({ title, subtitle, schema, hasLogo }: BuildSheetParams): XLS
   }
   const flatHead2: string[] = headRow2.map((v) => v ?? "")
 
-  const data: string[][] = [logoRow, titleRow, subtitleRow, flatHead1, flatHead2, ...body]
+  // Body cells that hold pure integers / decimals are emitted as real Excel
+  // number cells (so =SUM and other formulas work over the columns). Strings
+  // with any non-numeric character — tag numbers like "240-S2N-L1-1016",
+  // material strings like "CS+HDG", remarks — stay as strings. Empty cells
+  // stay empty (we never conjure 0 out of nothing). Display is identical for
+  // integers; the body styling already enforces center alignment so numbers
+  // don't suddenly right-align.
+  const numericBody: (string | number)[][] = body.map((row) => row.map(asNumberIfNumeric))
+
+  const data: (string | number)[][] = [logoRow, titleRow, subtitleRow, flatHead1, flatHead2, ...numericBody]
   const ws = XLSX.utils.aoa_to_sheet(data)
   ws["!merges"] = merges
 
