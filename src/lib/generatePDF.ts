@@ -49,11 +49,19 @@ const BODY_FONT_PT = 5.5
  *  TAG NUMBER big enough to render "240-S2N-L1-1016" on a single line at
  *  the body font size. */
 const META_COL_WIDTHS_MM = [7, 7, 22, 7, 13, 9, 9] as const
-/** Width pinned per length column (A, B, C, …). 5mm fits 4-digit values
- *  like "1980" at the body font size without breaking. */
-const LENGTH_COL_WIDTH_MM = 5
-const TOTAL_COL_WIDTH_MM = 9
+/** Width pinned per length column (A, B, C, …). 7mm + the tighter
+ *  cellPadding below give roughly 5.4mm of usable text width — enough to
+ *  fit a 4-digit value like "1980" at 5.5pt body font without wrapping
+ *  ("305" was wrapping into "30 / 5" at the previous 5mm width). */
+const LENGTH_COL_WIDTH_MM = 7
+const TOTAL_COL_WIDTH_MM = 11
 const REMARKS_COL_WIDTH_MM = 12
+/** Inner padding (mm) applied to every body and header cell. Reduced from
+ *  autoTable's 1.6 default so a 4-digit value can occupy more of the
+ *  available column width — directly addresses the "300 wraps to 30 / 0"
+ *  issue at narrow length columns. */
+const BODY_CELL_PADDING_MM = 0.8
+const HEAD_CELL_PADDING_MM = 1.0
 /** Item columns share whatever horizontal space is left after meta + length
  *  + total + remarks are pinned. Bounded so a project with very few item
  *  columns doesn't get absurdly wide cells, and so a project with many
@@ -127,6 +135,22 @@ export function normVariant(label: string): string {
   return label.trim().toLowerCase()
 }
 
+/** Master/project configs sometimes carry variant items as separate
+ *  standalone entries — "L ANGLE (VARIANT Z)", "L ANGLE (VARIANT S)" — alongside
+ *  a parent "L ANGLE" definition that has its own variants. Without
+ *  reshaping, those siblings render as their own columns and the user
+ *  ends up with three L ANGLE-flavoured columns instead of one.
+ *
+ *  Returns { parent, variant } when the item name ends with "(VARIANT XXX)"
+ *  (case-insensitive, whitespace tolerant), or null otherwise. Callers
+ *  treat the matched item as a variant of `parent` with label `variant`. */
+const VARIANT_SUFFIX_RE = /^(.+?)\s*\(\s*VARIANT\s+(.+?)\s*\)\s*$/i
+export function reshapeVariantSuffix(itemName: string): { parent: string; variant: string } | null {
+  const m = itemName.match(VARIANT_SUFFIX_RE)
+  if (!m) return null
+  return { parent: m[1].trim(), variant: m[2].trim() }
+}
+
 /** Pick the dominant non-empty material across the rendered rows. Returns ""
  *  when every row's material is blank. Used to label the item-column headers
  *  with "ITEM (MATERIAL-MODEL)" — material is per-row in the data model but
@@ -163,6 +187,19 @@ export function buildItemModels(typeConfigs: SupportTypeConfig[]): {
   const variant = new Map<string, Map<string, string>>()
   for (const tc of typeConfigs) {
     for (const item of tc.items) {
+      // Same suffix reshape as buildItemColumns — keeps the model
+      // attribution aligned with the rendered column structure.
+      const reshape = reshapeVariantSuffix(item.itemName)
+      if (reshape) {
+        let inner = variant.get(reshape.parent)
+        if (!inner) { inner = new Map(); variant.set(reshape.parent, inner) }
+        const key = normVariant(reshape.variant)
+        if (!inner.has(key)) {
+          const m = (item.model || "").trim()
+          if (m) inner.set(key, m)
+        }
+        continue
+      }
       if (item.variants && item.variants.length > 0) {
         let inner = variant.get(item.itemName)
         if (!inner) { inner = new Map(); variant.set(item.itemName, inner) }
@@ -222,6 +259,14 @@ export function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[]
 
   for (const tc of typeConfigs) {
     for (const item of tc.items) {
+      // Items literally named "L ANGLE (VARIANT Z)" get folded into the
+      // parent "L ANGLE" as variant Z, so they share a colSpan'd parent
+      // header with siblings instead of standing alone in their own column.
+      const reshape = reshapeVariantSuffix(item.itemName)
+      if (reshape) {
+        note(reshape.parent, reshape.variant)
+        continue
+      }
       if (item.variants && item.variants.length > 0) {
         for (const v of item.variants) note(item.itemName, v.label)
       } else {
@@ -259,16 +304,38 @@ export function buildItemColumns(typeConfigs: SupportTypeConfig[]): ItemColumn[]
  *  otherwise the same number would duplicate across every sub-column. */
 export function readItemValue(row: SupportRow, itemName: string, variantLabel: string, isPrimary = false): string {
   const map = row.itemQtys?.[itemName]
-  if (!map) return ""
-  const direct = map[variantLabel]
-  if (direct !== undefined && direct !== "") return direct
-  const target = normVariant(variantLabel)
-  for (const [k, v] of Object.entries(map)) {
-    if (normVariant(k) === target && v !== undefined && v !== "") return v
+  if (map) {
+    const direct = map[variantLabel]
+    if (direct !== undefined && direct !== "") return direct
+    const target = normVariant(variantLabel)
+    for (const [k, v] of Object.entries(map)) {
+      if (normVariant(k) === target && v !== undefined && v !== "") return v
+    }
+    if (isPrimary) {
+      const emptyVal = map[""]
+      if (emptyVal !== undefined && emptyVal !== "") return emptyVal
+    }
   }
-  if (isPrimary) {
-    const emptyVal = map[""]
-    if (emptyVal !== undefined && emptyVal !== "") return emptyVal
+  // Variant-suffix fallback. The column is labelled "L ANGLE" / "Z" because
+  // buildItemColumns reshaped a "L ANGLE (VARIANT Z)" item into a variant
+  // of "L ANGLE" — but the row data was generated from an upload whose
+  // Excel column header was the original "L ANGLE (VARIANT Z)" string, so
+  // the qty lives at row.itemQtys["L ANGLE (VARIANT Z)"][""]. Without this
+  // fallback the merged column would render empty for those rows.
+  if (variantLabel) {
+    const itemTarget = itemName.trim().toLowerCase()
+    const variantTarget = normVariant(variantLabel)
+    for (const [k, m] of Object.entries(row.itemQtys ?? {})) {
+      const r = reshapeVariantSuffix(k)
+      if (!r) continue
+      if (r.parent.trim().toLowerCase() !== itemTarget) continue
+      if (normVariant(r.variant) !== variantTarget) continue
+      const emptyVal = m[""]
+      if (emptyVal !== undefined && emptyVal !== "") return emptyVal
+      for (const v of Object.values(m)) {
+        if (v !== undefined && v !== "") return v
+      }
+    }
   }
   return ""
 }
@@ -467,7 +534,7 @@ function renderTypeSection(params: RenderSectionParams): void {
     body,
     styles: {
       fontSize: BODY_FONT_PT,
-      cellPadding: 1.2,
+      cellPadding: BODY_CELL_PADDING_MM,
       font: fonts.body,
       textColor: DARK,
       lineColor: BORDER,
@@ -481,7 +548,7 @@ function renderTypeSection(params: RenderSectionParams): void {
       fontSize: HEADER_FONT_PT,
       font: fonts.display,
       fontStyle: "bold",
-      cellPadding: 1.4,
+      cellPadding: HEAD_CELL_PADDING_MM,
     },
     // Every column is pinned with an explicit width — no content-based fit
     // anywhere — so headers and body never get squeezed into a wrap.
@@ -638,7 +705,7 @@ function renderFlatTable(params: RenderFlatParams): void {
     body,
     styles: {
       fontSize: BODY_FONT_PT,
-      cellPadding: 1.2,
+      cellPadding: BODY_CELL_PADDING_MM,
       font: fonts.body,
       textColor: DARK,
       lineColor: BORDER,
@@ -652,7 +719,7 @@ function renderFlatTable(params: RenderFlatParams): void {
       fontSize: HEADER_FONT_PT,
       font: fonts.display,
       fontStyle: "bold",
-      cellPadding: 1.4,
+      cellPadding: HEAD_CELL_PADDING_MM,
     },
     // Same per-column pinning as renderTypeSection.
     columnStyles: buildColumnStyles(activeLengths.length, itemCols.length, itemColWidth),
