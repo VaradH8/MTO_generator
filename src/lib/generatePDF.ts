@@ -40,28 +40,31 @@ const PAGE_MARGIN_MM = 5
 
 /** Body / header font sizes. Smaller than the original 6.5/6pt so a 25-char
  *  item header like "OPEN L (CS+HDG-S2N2602C)" fits on one line in a column
- *  that's only ~28mm wide. At 4.5pt header font roughly 0.95mm per char,
- *  25 chars need ~24mm — comfortably inside a 28mm column. */
-const HEADER_FONT_PT = 4.5
-const BODY_FONT_PT = 5.5
+ *  that's only ~24mm wide. At 4pt header font ~0.84mm/char, 25 chars need
+ *  ~21mm — comfortably inside a 24mm column with 0.7mm padding each side. */
+const HEADER_FONT_PT = 4.0
+const BODY_FONT_PT = 5.0
 
-/** Pinned mm widths for the seven PRE_LENGTH meta columns. Values land
- *  TAG NUMBER big enough to render "240-S2N-L1-1016" on a single line at
- *  the body font size. */
-const META_COL_WIDTHS_MM = [7, 7, 22, 7, 13, 9, 9] as const
-/** Width pinned per length column (A, B, C, …). 7mm + the tighter
- *  cellPadding below give roughly 5.4mm of usable text width — enough to
- *  fit a 4-digit value like "1980" at 5.5pt body font without wrapping
- *  ("305" was wrapping into "30 / 5" at the previous 5mm width). */
-const LENGTH_COL_WIDTH_MM = 7
-const TOTAL_COL_WIDTH_MM = 11
+/** Pinned mm widths for the seven PRE_LENGTH meta columns. Sized so the
+ *  longest header in each column ("WITHOUT PLATE", "WITH PLATE", "TAG
+ *  NUMBER") fits on a single line at the header font size, and so the
+ *  body text inside ("240-S2N-L1-1016", "CS+HDG", "Yes"/"") fits at the
+ *  body font size. The previous [7, 7, 22, 7, 13, 9, 9] left "WITHOUT
+ *  PLATE" 13 chars trying to live in 9mm — guaranteed wrap. */
+const META_COL_WIDTHS_MM = [7, 8, 22, 7, 13, 13, 16] as const
+/** Width pinned per length column (A, B, C, …). 8mm + the tighter
+ *  cellPadding below give roughly 6.8mm of usable text width — enough to
+ *  fit a 6-7 char decimal value like "1573.0" or "3870.50" at 5pt body
+ *  font without wrapping. */
+const LENGTH_COL_WIDTH_MM = 8
+const TOTAL_COL_WIDTH_MM = 12
 const REMARKS_COL_WIDTH_MM = 12
-/** Inner padding (mm) applied to every body and header cell. Reduced from
- *  autoTable's 1.6 default so a 4-digit value can occupy more of the
- *  available column width — directly addresses the "300 wraps to 30 / 0"
- *  issue at narrow length columns. */
-const BODY_CELL_PADDING_MM = 0.8
-const HEAD_CELL_PADDING_MM = 1.0
+/** Inner padding (mm) applied to every body and header cell. Tight values
+ *  let a 4pt header label like "WITHOUT PLATE" claim almost the entire
+ *  cell width — anything bigger and the text wraps even when the cell
+ *  would otherwise have room. */
+const BODY_CELL_PADDING_MM = 0.6
+const HEAD_CELL_PADDING_MM = 0.7
 /** Item columns share whatever horizontal space is left after meta + length
  *  + total + remarks are pinned. Bounded so a project with very few item
  *  columns doesn't get absurdly wide cells, and so a project with many
