@@ -88,6 +88,23 @@ async function runMigrations(): Promise<void> {
        type_configs     JSONB NOT NULL DEFAULT '[]'::jsonb
      )`,
     `CREATE INDEX IF NOT EXISTS idx_pdf_versions_project ON project_pdf_versions(project_id, generated_at DESC)`,
+    // Track who triggered each upload. Additive — pre-existing rows
+    // default to 'unknown' so the merged PDF/upload history still
+    // renders something sensible for them.
+    `ALTER TABLE uploads ADD COLUMN IF NOT EXISTS uploaded_by VARCHAR(100) NOT NULL DEFAULT 'unknown'`,
+    // Forgot-password flow: end-user POSTs their username here, admins
+    // see pending requests in Settings and resolve them by setting a
+    // new password. Status transitions are append-only via UPDATE; no
+    // request rows are deleted unless the admin explicitly chooses to.
+    `CREATE TABLE IF NOT EXISTS password_reset_requests (
+       id            VARCHAR(50) PRIMARY KEY,
+       username      VARCHAR(100) NOT NULL,
+       requested_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       status        VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','resolved','rejected')),
+       resolved_at   TIMESTAMPTZ,
+       resolved_by   VARCHAR(100)
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_pwreset_status ON password_reset_requests(status, requested_at DESC)`,
   ]
   for (const sql of statements) {
     try {

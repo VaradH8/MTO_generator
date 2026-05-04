@@ -6,9 +6,12 @@ function generateId() {
 }
 
 // GET /api/projects/[id]/pdf-versions
-// Returns every Combined PDF generation recorded for this project, newest first.
-// Excludes the heavy snapshots so the list query stays cheap — fetch a single
-// version via GET /api/projects/[id]/pdf-versions/[versionId] for the full blob.
+// Returns every Combined PDF generation recorded for this project, newest
+// first. Includes a derived `supportKeys` array (the tagNumbers from the
+// rows snapshot) so the client can match each version against the
+// project's uploads to figure out which Excel files contributed. The full
+// rows_snapshot blob is NOT returned here — fetch the per-version
+// endpoint when you actually need the row data.
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -17,20 +20,24 @@ export async function GET(
     await ensureMigrations()
     const { id } = await params
     const { rows } = await pool.query(
-      `SELECT id, generated_at, generated_by, label, row_count, type_count
-       FROM project_pdf_versions
-       WHERE project_id = $1
-       ORDER BY generated_at DESC`,
-      [id]
+      `SELECT id, generated_at, generated_by, label, row_count, type_count,
+              jsonb_path_query_array(rows_snapshot, '$[*].tagNumber') AS support_keys
+         FROM project_pdf_versions
+         WHERE project_id = $1
+         ORDER BY generated_at DESC`,
+      [id],
     )
     return NextResponse.json({
-      versions: rows.map((r: { id: string; generated_at: string; generated_by: string; label: string; row_count: number; type_count: number }) => ({
+      versions: rows.map((r: { id: string; generated_at: string; generated_by: string; label: string; row_count: number; type_count: number; support_keys: unknown }) => ({
         id: r.id,
         generatedAt: r.generated_at,
         generatedBy: r.generated_by,
         label: r.label,
         rowCount: r.row_count,
         typeCount: r.type_count,
+        supportKeys: Array.isArray(r.support_keys)
+          ? (r.support_keys as unknown[]).filter((k): k is string => typeof k === "string" && k.trim() !== "")
+          : [],
       })),
     })
   } catch (error: unknown) {

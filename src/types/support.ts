@@ -123,6 +123,9 @@ export interface UploadRecord {
   revisions: number
   supportKeys: string[]
   classification: "internal" | "external"
+  /** Username of whoever triggered the upload. Defaults to "unknown" for
+   *  rows from before the migration that added this column. */
+  uploadedBy?: string
 }
 
 export interface ActivityEntry {

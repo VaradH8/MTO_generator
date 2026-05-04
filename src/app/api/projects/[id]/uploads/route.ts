@@ -14,7 +14,7 @@ export async function POST(
     await ensureMigrations()
     const { id: projectId } = await params
     const body = await req.json()
-    const { fileName, rowCount, types, supportKeys, classification } = body
+    const { fileName, rowCount, types, supportKeys, classification, uploadedBy } = body
 
     if (!fileName) {
       return NextResponse.json({ error: "fileName is required" }, { status: 400 })
@@ -58,9 +58,9 @@ export async function POST(
 
     const uploadId = generateId()
     const { rows } = await pool.query(
-      `INSERT INTO uploads (id, project_id, file_name, row_count, types, support_keys, new_supports, revisions)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, file_name, uploaded_at, row_count, types, support_keys, new_supports, revisions`,
+      `INSERT INTO uploads (id, project_id, file_name, row_count, types, support_keys, new_supports, revisions, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, file_name, uploaded_at, row_count, types, support_keys, new_supports, revisions, uploaded_by`,
       [
         uploadId,
         projectId,
@@ -70,6 +70,7 @@ export async function POST(
         JSON.stringify(incomingKeys),
         newSupports,
         revisions,
+        uploadedBy || "unknown",
       ]
     )
 
@@ -84,6 +85,7 @@ export async function POST(
         supportKeys: u.support_keys,
         newSupports: u.new_supports,
         revisions: u.revisions,
+        uploadedBy: u.uploaded_by,
         classification: classification || "internal",
       },
       { status: 201 }

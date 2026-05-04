@@ -161,6 +161,71 @@ export default function SettingsPage() {
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
+  // ─── Password reset requests (admin only) ───
+  type ResetRequest = {
+    id: string
+    username: string
+    requestedAt: string
+    status: "pending" | "resolved" | "rejected"
+    resolvedAt?: string | null
+    resolvedBy?: string | null
+  }
+  const [resetRequests, setResetRequests] = useState<ResetRequest[]>([])
+  const [resetRequestsError, setResetRequestsError] = useState("")
+  const [resolvingRequestId, setResolvingRequestId] = useState<string | null>(null)
+  const [resolvePassword, setResolvePassword] = useState("")
+
+  const fetchResetRequests = useCallback(async () => {
+    if (!isAdmin || !currentUser) return
+    setResetRequestsError("")
+    try {
+      const res = await fetch("/api/password-reset/requests", { headers: { "x-username": currentUser.username } })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setResetRequestsError(data.error || `Failed to load reset requests (${res.status})`)
+        return
+      }
+      setResetRequests(await res.json())
+    } catch (e) {
+      setResetRequestsError(e instanceof Error ? e.message : "Failed to load reset requests")
+    }
+  }, [isAdmin, currentUser])
+
+  useEffect(() => { fetchResetRequests() }, [fetchResetRequests])
+
+  const handleResolveRequest = async (id: string) => {
+    if (!currentUser || !resolvePassword) return
+    setResetRequestsError("")
+    const res = await fetch(`/api/password-reset/requests/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-username": currentUser.username },
+      body: JSON.stringify({ action: "resolve", newPassword: resolvePassword }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setResetRequestsError(data.error || `Failed to resolve (${res.status})`)
+      return
+    }
+    setResolvingRequestId(null); setResolvePassword("")
+    fetchResetRequests()
+  }
+
+  const handleRejectRequest = async (id: string) => {
+    if (!currentUser) return
+    setResetRequestsError("")
+    const res = await fetch(`/api/password-reset/requests/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-username": currentUser.username },
+      body: JSON.stringify({ action: "reject" }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setResetRequestsError(data.error || `Failed to reject (${res.status})`)
+      return
+    }
+    fetchResetRequests()
+  }
+
   const handleCreateUser = async () => {
     if (!currentUser || !newUsername.trim() || !newUserPassword) return
     setUsersError("")
@@ -662,6 +727,63 @@ export default function SettingsPage() {
                   </div>
                 )
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Pending Password Reset Requests (admin only) ───
+          Surfaces every "Forgot password" submission from the login
+          screen. Resolving sets the user's password (and stamps
+          resolved_at / resolved_by); rejecting just closes the request
+          without touching the user row. */}
+      {isAdmin && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
+            Password Reset Requests ({resetRequests.filter((r) => r.status === "pending").length})
+          </h2>
+          <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginBottom: "var(--space-4)" }}>
+            Pending requests submitted via the &quot;Forgot password&quot; link on the login page.
+          </p>
+
+          {resetRequestsError && (
+            <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginBottom: "var(--space-3)" }}>{resetRequestsError}</div>
+          )}
+
+          {resetRequests.filter((r) => r.status === "pending").length === 0 ? (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-faint)" }}>No pending requests.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+              {resetRequests.filter((r) => r.status === "pending").map((r) => (
+                <div key={r.id} style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", padding: "var(--space-3)", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: "0.875rem", fontWeight: 600, color: "var(--color-text)" }}>{r.username}</span>
+                    <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
+                      Requested {new Date(r.requestedAt).toLocaleString()}
+                    </span>
+                    <div style={{ flex: 1 }} />
+                    {resolvingRequestId === r.id ? (
+                      <>
+                        <input
+                          type="text"
+                          value={resolvePassword}
+                          onChange={(e) => setResolvePassword(e.target.value)}
+                          placeholder="New password"
+                          autoFocus
+                          style={{ ...inputStyle, height: 30, fontSize: "0.8125rem", width: 180 }}
+                        />
+                        <ActionButton variant="primary" size="sm" onClick={() => handleResolveRequest(r.id)} disabled={!resolvePassword || resolvePassword.length < 4}>Set Password</ActionButton>
+                        <ActionButton variant="ghost" size="sm" onClick={() => { setResolvingRequestId(null); setResolvePassword("") }}>Cancel</ActionButton>
+                      </>
+                    ) : (
+                      <>
+                        <ActionButton variant="primary" size="sm" onClick={() => { setResolvingRequestId(r.id); setResolvePassword("") }}>Reset Password</ActionButton>
+                        <ActionButton variant="ghost" size="sm" onClick={() => handleRejectRequest(r.id)}>Reject</ActionButton>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

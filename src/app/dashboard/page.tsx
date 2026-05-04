@@ -18,21 +18,6 @@ export default function DashboardPage() {
 
   const isAdmin = user?.role === "admin"
 
-  /* ── Aggregated type distribution across all projects ── */
-  const typeDistribution = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const p of projects) {
-      for (const u of p.uploads || []) {
-        for (const t of u.types || []) {
-          counts[t] = (counts[t] || 0) + 1
-        }
-      }
-    }
-    return counts
-  }, [projects])
-
-  const typeMax = useMemo(() => Math.max(1, ...Object.values(typeDistribution)), [typeDistribution])
-
   /* ── Internal vs External counts ── */
   const { internalTotal, externalTotal } = useMemo(() => {
     let internal = 0
@@ -157,37 +142,6 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-
-      {/* Type Distribution Chart */}
-      {Object.keys(typeDistribution).length > 0 && (
-        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "var(--space-4)" }}>
-            Type Distribution
-          </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-            {Object.entries(typeDistribution)
-              .sort(([, a], [, b]) => b - a)
-              .map(([typeName, count]) => (
-                <div key={typeName} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text)", minWidth: 60 }}>{typeName}</span>
-                  <div style={{ flex: 1, height: 18, background: "var(--color-surface-2)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        width: `${Math.round((count / typeMax) * 100)}%`,
-                        height: "100%",
-                        background: "var(--color-primary)",
-                        borderRadius: "var(--radius-sm)",
-                        transition: "width 0.4s ease-out",
-                        minWidth: 2,
-                      }}
-                    />
-                  </div>
-                  <span style={{ fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)", minWidth: 28, textAlign: "right" }}>{count}</span>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
 
       {/* Internal vs External */}
       {(internalTotal > 0 || externalTotal > 0) && (

@@ -8,6 +8,7 @@ import { parseExcelFile } from "@/lib/parseExcel"
 import { computeMappedTotal } from "@/lib/parseMapping"
 import { useSupportContext } from "@/context/SupportContext"
 import { useProjects } from "@/context/ProjectContext"
+import { useAuth } from "@/context/AuthContext"
 import * as XLSX from "xlsx"
 import { LENGTH_KEYS } from "@/types/support"
 import type { ParseResult, SupportRow, SupportTypeConfig, LengthKey, TypeMapping } from "@/types/support"
@@ -23,6 +24,7 @@ export default function UploadPage() {
   const searchParams = useSearchParams()
   const { setValidationResult, setGroupedSupports, setCurrentProject } = useSupportContext()
   const { projects, getTypeNames, getTypeConfigs, addUploadRecord } = useProjects()
+  const { user } = useAuth()
 
   // Project from URL param or dropdown
   const urlProjectId = searchParams.get("project")
@@ -284,7 +286,7 @@ export default function UploadPage() {
     }
 
     const fileNames = [file?.name || "Excel Upload", ...additionalFiles.map((f) => f.name)].join(", ")
-    addUploadRecord(projectId, { fileName: fileNames, rowCount: rows.length, types: Array.from(types), supportKeys, classification })
+    addUploadRecord(projectId, { fileName: fileNames, rowCount: rows.length, types: Array.from(types), supportKeys, classification, uploadedBy: user?.username || "unknown" })
     router.push("/review")
   }
 

@@ -193,6 +193,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         types: record.types,
         supportKeys: record.supportKeys,
         classification: record.classification,
+        uploadedBy: record.uploadedBy ?? "unknown",
       }),
     })
       .then((res) => {

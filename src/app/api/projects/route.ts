@@ -49,7 +49,7 @@ export async function GET(_req: NextRequest) {
 
         // Uploads
         const { rows: uploads } = await pool.query(
-          `SELECT id, file_name, uploaded_at, row_count, types, support_keys, new_supports, revisions
+          `SELECT id, file_name, uploaded_at, row_count, types, support_keys, new_supports, revisions, uploaded_by
            FROM uploads WHERE project_id = $1 ORDER BY uploaded_at DESC`,
           [p.id]
         )
@@ -78,6 +78,7 @@ export async function GET(_req: NextRequest) {
             supportKeys: u.support_keys,
             newSupports: u.new_supports,
             revisions: u.revisions,
+            uploadedBy: u.uploaded_by ?? "unknown",
           })),
           activityLog: activity.map((a: any) => ({
             id: a.id,
