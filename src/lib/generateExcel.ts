@@ -13,6 +13,8 @@ import {
   readItemValue,
   maxLengthKey,
   totalForRow,
+  roundDisplay,
+  isRealRow,
   type PdfLogos,
 } from "./generatePDF"
 
@@ -66,18 +68,20 @@ const HEADER_STYLE: CellStyle = {
     right: { style: "thin", color: { rgb: COLOR.border } },
   },
 }
-/** Coerce a body cell string into a number when — and only when — the entire
- *  string is a clean integer or decimal. Hyphenated tokens like "240-S2N-L1-
- *  1016", alphabetic strings like "CS+HDG", and empty cells all stay strings
- *  (an empty cell never becomes 0). Used so length values, totals, and item
- *  quantities show up as Excel number cells that =SUM can roll up. */
+/** Coerce a body cell string into a (rounded) number when — and only when —
+ *  the entire string is a clean integer or decimal. Hyphenated tokens like
+ *  "240-S2N-L1-1016", alphabetic strings like "CS+HDG", and empty cells all
+ *  stay strings (an empty cell never becomes 0). Numbers are passed through
+ *  the project's display rounding rule (≤0.5 down, ≥0.6 up) so the cell
+ *  shows "1573" instead of "1573.0" while remaining a real Excel number
+ *  cell that =SUM can roll up. */
 function asNumberIfNumeric(s: string): string | number {
   if (typeof s !== "string") return s
   const trimmed = s.trim()
   if (trimmed === "") return s
   if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return s
   const n = Number(trimmed)
-  return Number.isFinite(n) ? n : s
+  return Number.isFinite(n) ? roundDisplay(n) : s
 }
 
 function bodyStyle(zebra: boolean): CellStyle {
@@ -116,7 +120,11 @@ interface SheetSchema {
 }
 
 function buildSchema(params: BuildSchemaParams, mapping: ProjectMapping | undefined): SheetSchema {
-  const { rows, typeConfigs, scopeToRows } = params
+  const { rows: rawRows, typeConfigs, scopeToRows } = params
+
+  // Drop pre-allocated empty rows so the sheet ends exactly where the data
+  // ends. Same filter the PDF uses — see isRealRow.
+  const rows = rawRows.filter(isRealRow)
 
   const lastLength = maxLengthKey(rows)
   const lastLengthIdx = LENGTH_KEYS.indexOf(lastLength)
@@ -579,7 +587,8 @@ export async function generateExcel(
   logos?: PdfLogos,
 ): Promise<Blob> {
   const schema = buildSchema({ rows, typeConfigs, scopeToRows: true }, mapping)
-  const subtitle = `${projectName ? `${projectName} | ` : ""}${rows.length} supports`
+  const realCount = rows.filter(isRealRow).length
+  const subtitle = `${projectName ? `${projectName} | ` : ""}${realCount} supports`
   const ws = buildSheet({ title: `Support Schedule — ${type}`, subtitle, schema, hasLogo: hasUsableLogo(logos) })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, type.slice(0, 31) || "Schedule")
@@ -599,9 +608,14 @@ export async function generateCombinedExcel(
   const allRows: SupportRow[] = []
   const typesUsed: string[] = []
   for (const [type, rows] of Object.entries(grouped)) {
-    if (!rows.length) continue
+    // Skip type buckets whose rows are all empty placeholders so the
+    // subtitle's "X types: …" list matches what's actually rendered.
+    if (!rows.some(isRealRow)) continue
     typesUsed.push(type)
-    for (const r of rows) allRows.push(r)
+    for (const r of rows) {
+      if (!isRealRow(r)) continue
+      allRows.push(r)
+    }
   }
   const schema = buildSchema({ rows: allRows, typeConfigs }, mapping)
   const subtitle = [
@@ -633,11 +647,14 @@ export async function generateSelectionExcel(
   }
   const ordered: SupportRow[] = []
   for (const rs of Object.values(buckets)) ordered.push(...rs)
-  const typesUsed = Array.from(new Set(rows.map((r) => r.type).filter(Boolean)))
+  // Filter to real rows for subtitle counts so a selection that captured
+  // a few placeholder rows doesn't inflate the headline.
+  const realSelection = rows.filter(isRealRow)
+  const typesUsed = Array.from(new Set(realSelection.map((r) => r.type).filter(Boolean)))
   const schema = buildSchema({ rows: ordered, typeConfigs }, mapping)
   const subtitle = [
     projectName,
-    `Selected · ${rows.length} supports`,
+    `Selected · ${realSelection.length} supports`,
     typesUsed.length > 0 ? typesUsed.join(", ") : null,
   ].filter(Boolean).join(" | ")
   const ws = buildSheet({ title: "Support Schedule — Selection", subtitle, schema, hasLogo: hasUsableLogo(logos) })

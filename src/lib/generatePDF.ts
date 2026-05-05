@@ -15,6 +15,57 @@ export function totalForRow(row: SupportRow, mapping: ProjectMapping | undefined
   return computeMappedTotal(row.lengths, m)
 }
 
+/** Round per the project's display rule: fractional part < 0.6 rounds DOWN
+ *  (so 1.5 → 1, 1.55 → 1) and fractional part ≥ 0.6 rounds UP (1.6 → 2).
+ *  Implemented via floor(x + 0.4 + ε) — the small epsilon compensates for
+ *  IEEE-754: "0.6" is stored as 0.5999999999999999778…, which without the
+ *  epsilon would land on floor(0.9999…) = 0 instead of 1.
+ *  Sign-aware so negative values mirror the same boundary. */
+export function roundDisplay(x: number): number {
+  if (!Number.isFinite(x)) return x
+  const sign = x < 0 ? -1 : 1
+  const abs = Math.abs(x)
+  return sign * Math.floor(abs + 0.4 + 1e-9)
+}
+
+/** Render a numeric body cell with the project's rounding rule applied.
+ *  Non-numeric strings (tag numbers, "CS+HDG", "", "Yes") are returned
+ *  unchanged so we don't accidentally turn a hyphenated tag into a number.
+ *  Used for length cells, the row TOTAL, and item-qty cells in both PDF
+ *  renderers and the Excel exporter (via asNumberIfNumeric). */
+export function displayNumeric(s: string): string {
+  if (typeof s !== "string") return s
+  const trimmed = s.trim()
+  if (trimmed === "") return s
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return s
+  const n = Number(trimmed)
+  if (!Number.isFinite(n)) return s
+  return String(roundDisplay(n))
+}
+
+/** Identify rows that carry no real data — placeholders left over from a
+ *  pre-allocated support range (no tag number, no type, no material, no
+ *  lengths, no item qtys, no remarks). These show up in the PDF as 0/blank
+ *  pad rows past the last real support; the renderers filter them out at
+ *  body construction so the schedule ends exactly where the data does.
+ *  Zero data is removed from rendering only — the row stays in the DB
+ *  and on the editable on-screen table. */
+export function isRealRow(row: SupportRow): boolean {
+  if ((row.tagNumber ?? "").trim() !== "") return true
+  if ((row.type ?? "").trim() !== "") return true
+  if ((row.material ?? "").trim() !== "") return true
+  if ((row.remarks ?? "").trim() !== "") return true
+  for (const k of LENGTH_KEYS) {
+    if (String(row.lengths?.[k] ?? "").trim() !== "") return true
+  }
+  for (const map of Object.values(row.itemQtys ?? {})) {
+    for (const v of Object.values(map)) {
+      if (String(v ?? "").trim() !== "") return true
+    }
+  }
+  return false
+}
+
 const PRIMARY: [number, number, number] = [31, 60, 168]
 const DARK: [number, number, number] = [13, 21, 48]
 const MUTED: [number, number, number] = [74, 84, 120]
@@ -416,10 +467,14 @@ interface RenderSectionParams {
 }
 
 function renderTypeSection(params: RenderSectionParams): void {
-  const { doc, fonts, type, rows, projectName, typeConfigs, logos, subtitleOverride, mapping } = params
+  const { doc, fonts, type, rows: rawRows, projectName, typeConfigs, logos, subtitleOverride, mapping } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const mx = PAGE_MARGIN_MM
+
+  // Drop pre-allocated empty rows so the table ends exactly where the data
+  // does instead of trailing 0/blank pad rows past the last real support.
+  const rows = rawRows.filter(isRealRow)
 
   const lastLength = maxLengthKey(rows)
   const lastLengthIdx = LENGTH_KEYS.indexOf(lastLength)
@@ -501,11 +556,11 @@ function renderTypeSection(params: RenderSectionParams): void {
       else if (c.key === "withoutPlate") cells.push(flags.withoutPlate || "")
       else cells.push(String((row as unknown as Record<string, unknown>)[c.key] ?? ""))
     }
-    for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
-    cells.push(totalForRow(row, mapping))
+    for (const k of activeLengths) cells.push(displayNumeric(String(row.lengths[k] ?? "")))
+    cells.push(displayNumeric(totalForRow(row, mapping)))
     for (const ic of itemCols) {
       const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
-      cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
+      cells.push(displayNumeric(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary)))
     }
     cells.push(String(row.remarks ?? ""))
     return cells
@@ -596,10 +651,14 @@ interface RenderFlatParams {
  * render an empty cell. autoTable handles pagination on its own.
  */
 function renderFlatTable(params: RenderFlatParams): void {
-  const { doc, fonts, title, subtitle, rows, typeConfigs, logos, mapping } = params
+  const { doc, fonts, title, subtitle, rows: rawRows, typeConfigs, logos, mapping } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
   const mx = PAGE_MARGIN_MM
+
+  // Drop pre-allocated empty rows so the table ends exactly where the data
+  // does. See renderTypeSection for the same filter.
+  const rows = rawRows.filter(isRealRow)
 
   const lastLength = maxLengthKey(rows)
   const lastLengthIdx = LENGTH_KEYS.indexOf(lastLength)
@@ -675,11 +734,11 @@ function renderFlatTable(params: RenderFlatParams): void {
       else if (c.key === "withoutPlate") cells.push(flags.withoutPlate || "")
       else cells.push(String((row as unknown as Record<string, unknown>)[c.key] ?? ""))
     }
-    for (const k of activeLengths) cells.push(String(row.lengths[k] ?? ""))
-    cells.push(totalForRow(row, mapping))
+    for (const k of activeLengths) cells.push(displayNumeric(String(row.lengths[k] ?? "")))
+    cells.push(displayNumeric(totalForRow(row, mapping)))
     for (const ic of itemCols) {
       const isPrimary = primaryCol.has(`${ic.itemName}::${ic.variantLabel}`)
-      cells.push(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary))
+      cells.push(displayNumeric(readItemValue(row, ic.itemName, ic.variantLabel, isPrimary)))
     }
     cells.push(String(row.remarks ?? ""))
     return cells
@@ -782,9 +841,15 @@ export async function generateCombinedPDF(
   const allRows: SupportRow[] = []
   const typesUsed: string[] = []
   for (const [type, rows] of Object.entries(grouped)) {
-    if (!rows.length) continue
+    // Skip type buckets that contain no real (non-placeholder) rows so a
+    // type whose only rows are empty pre-allocations doesn't pollute the
+    // subtitle's "X types: …" list.
+    if (!rows.some(isRealRow)) continue
     typesUsed.push(type)
-    for (const r of rows) allRows.push(r)
+    for (const r of rows) {
+      if (!isRealRow(r)) continue
+      allRows.push(r)
+    }
   }
 
   const subtitle = [
@@ -822,10 +887,13 @@ export async function generateSelectionPDF(
   const customLoaded = await registerFonts(doc)
   const fonts = getFontNames(customLoaded)
 
-  const typesUsed = Array.from(new Set(rows.map((r) => r.type).filter(Boolean)))
+  // Filter to real rows for the subtitle counts so a selection that
+  // captured a few placeholder rows doesn't inflate the headline.
+  const realSelection = rows.filter(isRealRow)
+  const typesUsed = Array.from(new Set(realSelection.map((r) => r.type).filter(Boolean)))
   const subtitle = [
     projectName,
-    `Selected · ${rows.length} supports`,
+    `Selected · ${realSelection.length} supports`,
     typesUsed.length > 0 ? typesUsed.join(", ") : null,
   ].filter(Boolean).join(" | ")
 
