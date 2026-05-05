@@ -43,17 +43,25 @@ export function displayNumeric(s: string): string {
   return String(roundDisplay(n))
 }
 
-/** Identify rows that carry no real data — placeholders left over from a
- *  pre-allocated support range (no tag number, no type, no material, no
- *  lengths, no item qtys, no remarks). These show up in the PDF as 0/blank
- *  pad rows past the last real support; the renderers filter them out at
- *  body construction so the schedule ends exactly where the data does.
- *  Zero data is removed from rendering only — the row stays in the DB
- *  and on the editable on-screen table. */
+/** Identify rows that carry real measurement data, distinguishing them
+ *  from placeholders left over by the upload pipeline. Pre-allocated
+ *  rows can ship with `material` defaulted to "CS+HDG", `level` to "2",
+ *  and an `slNo` filled in — none of which by themselves prove a real
+ *  support entry. We only keep a row when one of these load-bearing
+ *  fields has content:
+ *    - tagNumber (canonical identifier)
+ *    - remarks   (free-text the user explicitly wrote)
+ *    - any length value
+ *    - any item qty
+ *  Type, material, level, and slNo alone do NOT qualify — they're
+ *  default-populated and would otherwise let placeholder rows trail past
+ *  the last real support in the rendered PDF/Excel.
+ *
+ *  Strictly a render-time filter: rows stay in the DB and on the
+ *  editable on-screen support table, they're just not rendered into the
+ *  schedule. */
 export function isRealRow(row: SupportRow): boolean {
   if ((row.tagNumber ?? "").trim() !== "") return true
-  if ((row.type ?? "").trim() !== "") return true
-  if ((row.material ?? "").trim() !== "") return true
   if ((row.remarks ?? "").trim() !== "") return true
   for (const k of LENGTH_KEYS) {
     if (String(row.lengths?.[k] ?? "").trim() !== "") return true
