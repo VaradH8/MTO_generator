@@ -190,6 +190,33 @@ function computeItemColWidth(
   return Math.max(ITEM_COL_MIN_MM, Math.min(ITEM_COL_MAX_MM, ideal))
 }
 
+/** Total mm the rendered table occupies given the active column counts and
+ *  the chosen item-column width. Used to recompute side margins so a table
+ *  with few columns sits centered on the page instead of clinging to the
+ *  left edge with a big gap on the right. */
+function computeTableWidthMm(
+  activeLengthCount: number,
+  itemColCount: number,
+  itemColWidthMm: number,
+): number {
+  return (
+    META_COL_WIDTHS_MM.reduce((a, b) => a + b, 0)
+    + activeLengthCount * LENGTH_COL_WIDTH_MM
+    + TOTAL_COL_WIDTH_MM
+    + itemColCount * itemColWidthMm
+    + REMARKS_COL_WIDTH_MM
+  )
+}
+
+/** Side margin (mm) that centers a table of `tableWidthMm` on a page of
+ *  `pageWidthMm`, but never less than `minMarginMm`. When the table is
+ *  wider than the available area the result clamps to minMarginMm and
+ *  autoTable handles the right edge as before. */
+function centeredSideMargin(pageWidthMm: number, tableWidthMm: number, minMarginMm: number): number {
+  const slack = (pageWidthMm - tableWidthMm) / 2
+  return Math.max(minMarginMm, slack)
+}
+
 /** Build the autoTable `columnStyles` map for one render. Pins meta, length,
  *  TOTAL, item, and REMARKS columns to mm widths so autoTable never falls
  *  back to its content-fit algorithm — that algorithm is what produced the
@@ -515,7 +542,11 @@ function renderTypeSection(params: RenderSectionParams): void {
   const { doc, fonts, type, rows: rawRows, projectName, typeConfigs, logos, subtitleOverride, mapping } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
-  const mx = PAGE_MARGIN_MM
+  // Side margin starts at the project default but widens if the rendered
+  // table would otherwise leave a big gap on the right (small column
+  // counts). centeredSideMargin recomputes it after we know the final
+  // item-column count + width below.
+  let mx = PAGE_MARGIN_MM
 
   // Drop pre-allocated empty rows so the table ends exactly where the data
   // does instead of trailing 0/blank pad rows past the last real support.
@@ -634,6 +665,8 @@ function renderTypeSection(params: RenderSectionParams): void {
   doc.text(subtitle, pw / 2, 17, { align: "center" })
 
   const itemColWidth = computeItemColWidth(pw, mx, activeLengths.length, itemCols.length)
+  const tableWidthMm = computeTableWidthMm(activeLengths.length, itemCols.length, itemColWidth)
+  mx = centeredSideMargin(pw, tableWidthMm, PAGE_MARGIN_MM)
 
   autoTable(doc, {
     startY: 24,
@@ -703,7 +736,9 @@ function renderFlatTable(params: RenderFlatParams): void {
   const { doc, fonts, title, subtitle, rows: rawRows, typeConfigs, logos, mapping } = params
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
-  const mx = PAGE_MARGIN_MM
+  // See renderTypeSection — final value computed after we know the item
+  // column geometry so a narrow table sits centered on the page.
+  let mx = PAGE_MARGIN_MM
 
   // Drop pre-allocated empty rows so the table ends exactly where the data
   // does. See renderTypeSection for the same filter.
@@ -812,6 +847,8 @@ function renderFlatTable(params: RenderFlatParams): void {
   doc.text(subtitle, pw / 2, 17, { align: "center" })
 
   const itemColWidth = computeItemColWidth(pw, mx, activeLengths.length, itemCols.length)
+  const tableWidthMm = computeTableWidthMm(activeLengths.length, itemCols.length, itemColWidth)
+  mx = centeredSideMargin(pw, tableWidthMm, PAGE_MARGIN_MM)
 
   autoTable(doc, {
     startY: 24,
