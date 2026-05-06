@@ -15,6 +15,7 @@ import {
   totalForRow,
   roundDisplay,
   isRealRow,
+  pruneUnusedItemColumns,
   type PdfLogos,
 } from "./generatePDF"
 
@@ -137,7 +138,10 @@ function buildSchema(params: BuildSchemaParams, mapping: ProjectMapping | undefi
     if (scoped.length > 0) activeConfigs = scoped
   }
 
-  const itemCols = buildItemColumns(activeConfigs)
+  // Items configured on the active types, then trimmed to those that
+  // have at least one non-empty cell across the rendered rows. Same
+  // pruning the PDF does — keeps blank columns out of the schedule.
+  const itemCols = pruneUnusedItemColumns(buildItemColumns(activeConfigs), rows)
   const models = buildItemModels(activeConfigs)
   const material = dominantMaterial(rows)
 

@@ -43,6 +43,43 @@ export function displayNumeric(s: string): string {
   return String(roundDisplay(n))
 }
 
+/** Drop item columns that have no data in any of the supplied rows.
+ *  Type configs sometimes carry items that aren't actually used by the
+ *  current scope (e.g. an external type that lists CLOSED T / OPEN T /
+ *  OPEN L for completeness even though only L ANGLE rows ever show up
+ *  under it). Without this filter those columns render blank from top
+ *  to bottom and clutter the schedule. The "first variant column for
+ *  each item" promotion logic that lets a row stored under
+ *  itemQtys[X][""] surface in the leading variant column is honored
+ *  here so a column kept alive by promotion doesn't get pruned by the
+ *  filter and then need to render its primary cell empty. */
+export function pruneUnusedItemColumns(
+  itemCols: ItemColumn[],
+  rows: SupportRow[],
+): ItemColumn[] {
+  // Compute the FULL-set primary column (first column per item) so
+  // readItemValue knows where to route empty-key rows when checking for
+  // data. Filtering uses the full-set view; the caller recomputes a
+  // tighter primaryCol on the filtered list afterward.
+  const fullPrimary = new Set<string>()
+  {
+    const seenItems = new Set<string>()
+    for (const ic of itemCols) {
+      if (seenItems.has(ic.itemName)) continue
+      seenItems.add(ic.itemName)
+      fullPrimary.add(`${ic.itemName}::${ic.variantLabel}`)
+    }
+  }
+  return itemCols.filter((ic) => {
+    const isPrimary = fullPrimary.has(`${ic.itemName}::${ic.variantLabel}`)
+    for (const row of rows) {
+      const v = readItemValue(row, ic.itemName, ic.variantLabel, isPrimary)
+      if (v != null && String(v).trim() !== "") return true
+    }
+    return false
+  })
+}
+
 /** Identify rows that carry real measurement data, distinguishing them
  *  from placeholders left over by the upload pipeline. Pre-allocated
  *  rows can ship with `material` defaulted to "CS+HDG", `level` to "2",
@@ -491,7 +528,11 @@ function renderTypeSection(params: RenderSectionParams): void {
   const typesInRows = new Set(rows.map((r) => r.type.trim().toLowerCase()).filter(Boolean))
   const scopedConfigs = typeConfigs.filter((tc) => typesInRows.has(tc.typeName.trim().toLowerCase()))
   const activeConfigs = scopedConfigs.length > 0 ? scopedConfigs : typeConfigs
-  const itemCols = buildItemColumns(activeConfigs)
+  // Items configured on the active types, then trimmed to those that have
+  // at least one non-empty cell across the rendered rows — type configs
+  // can list items the current scope never actually fills, and rendering
+  // those produces top-to-bottom blank columns.
+  const itemCols = pruneUnusedItemColumns(buildItemColumns(activeConfigs), rows)
   const models = buildItemModels(activeConfigs)
   const material = dominantMaterial(rows)
 
@@ -672,9 +713,12 @@ function renderFlatTable(params: RenderFlatParams): void {
   const lastLengthIdx = LENGTH_KEYS.indexOf(lastLength)
   const activeLengths = LENGTH_KEYS.slice(0, lastLengthIdx + 1)
 
-  // Union of item columns across every configured type — mixed-type rows need
-  // the full column set so each row can fill in just its own items.
-  const itemCols = buildItemColumns(typeConfigs)
+  // Union of item columns across every configured type, then trimmed to
+  // those that actually have data in the rendered rows. Mixed-type rows
+  // still need the full union so a row whose type uses a column gets a
+  // place to land, but a column nobody fills is dropped — same reason as
+  // renderTypeSection.
+  const itemCols = pruneUnusedItemColumns(buildItemColumns(typeConfigs), rows)
   const models = buildItemModels(typeConfigs)
   const material = dominantMaterial(rows)
 
