@@ -144,10 +144,14 @@ const BODY_FONT_PT = 5.0
 /** Pinned mm widths for the seven PRE_LENGTH meta columns. Sized so the
  *  longest header in each column ("WITHOUT PLATE", "WITH PLATE", "TAG
  *  NUMBER") fits on a single line at the header font size, and so the
- *  body text inside ("240-S2N-L1-1016", "CS+HDG", "Yes"/"") fits at the
- *  body font size. The previous [7, 7, 22, 7, 13, 9, 9] left "WITHOUT
- *  PLATE" 13 chars trying to live in 9mm — guaranteed wrap. */
-const META_COL_WIDTHS_MM = [7, 8, 22, 7, 13, 13, 16] as const
+ *  body text inside ("240-S2N-L1-1016", "CS+HDG", "CELLAR DECK", "Yes")
+ *  fits at the body font size. LEVEL is sized for "CELLAR DECK" (11 chars
+ *  at 5pt ≈ 11mm + padding); longer level names like "BELOW CELLAR DECK"
+ *  still wrap to two lines but rowPageBreak: 'avoid' on the autoTable
+ *  call below keeps the wrapped row whole instead of splitting it across
+ *  the page boundary (the bug that left "CELLAR" alone on page 49 and
+ *  "DECK" stranded at the top of page 50). */
+const META_COL_WIDTHS_MM = [7, 14, 22, 7, 13, 13, 16] as const
 /** Width pinned per length column (A, B, C, …). 8mm + the tighter
  *  cellPadding below give roughly 6.8mm of usable text width — enough to
  *  fit a 6-7 char decimal value like "1573.0" or "3870.50" at 5pt body
@@ -696,6 +700,11 @@ function renderTypeSection(params: RenderSectionParams): void {
     alternateRowStyles: { fillColor: [250, 251, 254] },
     theme: "grid",
     margin: { left: mx, right: mx, top: 24, bottom: 8 },
+    // Keep multi-line LEVEL values like "BELOW CELLAR DECK" intact across
+    // page breaks. Without this autoTable splits the row, leaving the
+    // first wrapped line at the bottom of one page and the rest stranded
+    // at the top of the next — the issue the user reported.
+    rowPageBreak: "avoid",
     // Redraw the page chrome (accent bars + logos + footer) on every page
     // including overflow ones so logos stay branded top to bottom — matches
     // renderFlatTable, where this was previously the only place it ran.
@@ -877,6 +886,9 @@ function renderFlatTable(params: RenderFlatParams): void {
     alternateRowStyles: { fillColor: [250, 251, 254] },
     theme: "grid",
     margin: { left: mx, right: mx, top: 24, bottom: 8 },
+    // See renderTypeSection — keep multi-line LEVEL rows intact at page
+    // boundaries instead of splitting "CELLAR DECK" across two pages.
+    rowPageBreak: "avoid",
     // Redraw the page chrome (accent bars + footer) on every new page that
     // autoTable creates as the table overflows.
     didDrawPage: () => {
