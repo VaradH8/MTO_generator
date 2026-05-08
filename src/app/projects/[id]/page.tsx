@@ -301,7 +301,12 @@ export default function ProjectDetailPage() {
       }
       const profilesRes = await fetch("/api/settings/external-profile")
       const profiles: ExternalTypeProfile[] = profilesRes.ok ? await profilesRes.json() : []
-      const blob = await generateExternalMTO(externalRows, profiles, projectName, pdfLogos)
+      // Pass the project's external type configs — the exporter reads
+      // STARTER BRACKET / L ANGLE (Connector) / NUT / BOLT counts (with
+      // variant labels like "50 With Plate") from there rather than
+      // computing them.
+      const externalTypeConfigs = typeConfigs.filter((tc) => (tc.classification || "internal") === "external")
+      const blob = await generateExternalMTO(externalRows, profiles, externalTypeConfigs, projectName, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_external_MTO.xlsx`)
       setExternalMtoStatus("ready")

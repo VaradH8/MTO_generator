@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx-js-style"
-import type { SupportRow, ExternalTypeProfile } from "@/types/support"
+import type { SupportRow, ExternalTypeProfile, SupportTypeConfig } from "@/types/support"
 import { isRealRow, roundDisplay, type PdfLogos } from "./generatePDF"
 import { injectLogosIntoXlsx, hasUsableLogo } from "./generateExcel"
 
@@ -12,25 +12,35 @@ import { injectLogosIntoXlsx, hasUsableLogo } from "./generateExcel"
  *   - rows           : SupportRow[] (the project's external rows)
  *   - profiles       : ExternalTypeProfile[] from the Settings table
  *                      — provides TYPE → MEMBERS for L PROFILE summation
+ *                      and (via the flag columns) the implicit SB SIZE
+ *                      when the row didn't carry one.
+ *   - typeConfigs    : SupportTypeConfig[] from the project — the per-
+ *                      type item table. STARTER BRACKET / L ANGLE
+ *                      (Connector) / NUT / BOLT counts are read from
+ *                      these configs (with variant labels like
+ *                      "50 With Plate") rather than computed.
  *   - projectName    : header subtitle
  *   - logos          : optional top-corner logos (same shape PdfLogos)
  *
  * Computed columns:
- *   L PROFILE-50 / L PROFILE-100 — sum of the first MEMBERS length cells
- *     (cells like "576*3" treated as 3 segments of 576). Routed to the
- *     50 or 100 column based on the row's SB SIZE; row.lProfile50 /
- *     row.lProfile100 (when set) override the computed value, which is
- *     the path the user takes for UNIQUE / no-profile types where the
- *     value is entered manually in the source sheet.
- *   NUT / BOLT — sum of (item count × per-item fastener rate) using the
- *     rates derived from the RP5S sample:
- *       starter @50  = 4 each   starter @100 = 8 each
- *       conn    @50  = 2 each   conn    @100 = 8 each
+ *   L PROFILE-50 / L PROFILE-100 — sum of the first MEMBERS length
+ *     cells (cells like "576*3" treated as 3 segments of 576). Routed
+ *     to the 50 or 100 column based on the row's SB SIZE when set; if
+ *     SB SIZE is empty, derived from the profile's flag values for
+ *     that TYPE — flags = "100" → SB SIZE 100, flags blank or non-100
+ *     → SB SIZE 50, mixed → "50/100". The SB SIZE column on the row
+ *     also displays the inferred value.
  *
- * Item-count lookups walk row.itemQtys with regex patterns so the user
- * can keep their existing item naming as long as it contains the
- * relevant tokens ("STARTER BRACKET-50", "L ANGLE (Connector)", etc).
- * Items not found render as blank cells; nothing throws.
+ *   NUT / BOLT — read directly from the type config (NUT and BOLT
+ *     items, item.qty). The user fills these in from the master /
+ *     project config UI; the exporter no longer auto-computes them.
+ *
+ * Variant matching for STARTER BRACKET reads any item whose name
+ * contains "starter bracket" with variant labels matching size +
+ * with/without plate (in either order, e.g. "50 With Plate" or
+ * "With Plate 50"). L ANGLE (Connector) reads any item whose name
+ * contains "connector" with variants matching "50" or "100". Items
+ * not found render as blank cells; nothing throws.
  */
 
 /* ────────────────────────────── styling ─────────────────────────── */
@@ -112,35 +122,79 @@ function computeLProfileLength(row: SupportRow, members: number): number {
   return total
 }
 
-/** Walk row.itemQtys looking for an item whose name matches `itemRe` and
- *  optionally a variant matching `variantRe`. Returns the first numeric
- *  qty found, or 0. Variant patterns are checked against both the variant
- *  label and the empty-key fallback (so a no-variant item with a
- *  "starter bracket-50 with plate" name will still match). */
-function findItemQty(row: SupportRow, itemRe: RegExp, variantRe: RegExp | null): number {
+/** Resolve the type config for a row by matching typeName (case-insensitive,
+ *  whitespace-trimmed). Returns null when the row's type isn't configured. */
+function resolveTypeConfig(typeConfigs: SupportTypeConfig[], row: SupportRow): SupportTypeConfig | null {
+  const t = String(row.type ?? "").trim().toLowerCase()
+  if (!t) return null
+  return typeConfigs.find((c) => c.typeName.trim().toLowerCase() === t) ?? null
+}
+
+/** Look up an item qty inside a type config. Picks the first item whose
+ *  name matches `itemRe`. When `variantPredicate` is provided, only
+ *  variants whose label satisfies the predicate are considered (variant
+ *  qty is returned). When `variantPredicate` is null, the item's
+ *  top-level qty is returned. Falls back to row.itemQtys when nothing
+ *  is found in the type config so legacy data still surfaces something
+ *  rather than going blank. */
+function lookupItemQty(
+  typeConfigs: SupportTypeConfig[],
+  row: SupportRow,
+  itemRe: RegExp,
+  variantPredicate: ((label: string) => boolean) | null,
+): number {
+  const tc = resolveTypeConfig(typeConfigs, row)
+  if (tc) {
+    for (const item of tc.items) {
+      if (!itemRe.test(item.itemName)) continue
+      if (variantPredicate) {
+        if (item.variants && item.variants.length > 0) {
+          for (const v of item.variants) {
+            if (!variantPredicate(v.label)) continue
+            const n = parseFloat(String(v.qty ?? "").trim())
+            if (Number.isFinite(n) && n > 0) return n
+          }
+        }
+        // Fallback: variant predicate matches the item name itself
+        // (e.g., a literal item named "STARTER BRACKET-50 WITH PLATE"
+        // with no variants).
+        if (variantPredicate(item.itemName)) {
+          const n = parseFloat(String(item.qty ?? "").trim())
+          if (Number.isFinite(n) && n > 0) return n
+        }
+      } else {
+        const n = parseFloat(String(item.qty ?? "").trim())
+        if (Number.isFinite(n) && n > 0) return n
+      }
+    }
+  }
+  // Legacy fallback — only consulted when the type config didn't carry
+  // a matching item. Same-shape lookup against row.itemQtys.
   for (const [item, variants] of Object.entries(row.itemQtys ?? {})) {
     if (!itemRe.test(item)) continue
     for (const [variant, qty] of Object.entries(variants)) {
-      if (variantRe && variant && !variantRe.test(variant)) continue
-      // When variantRe is set but the variant key is empty, fall back to
-      // matching the item name for the variant token (covers the case where
-      // the bracket name itself encodes the with/without).
-      if (variantRe && !variant && !variantRe.test(item)) continue
-      const n = Number(String(qty).trim())
+      if (variantPredicate) {
+        if (variant && !variantPredicate(variant)) continue
+        if (!variant && !variantPredicate(item)) continue
+      }
+      const n = parseFloat(String(qty).trim())
       if (Number.isFinite(n) && n > 0) return n
     }
   }
   return 0
 }
 
-const STARTER_50_RE = /starter\s*bracket\s*-?\s*50/i
-const STARTER_100_RE = /starter\s*bracket\s*-?\s*100/i
-const CONNECTOR_RE = /l\s*angle\s*\(?\s*connector\s*\)?/i
+const STARTER_BRACKET_RE = /starter\s*bracket/i
+const CONNECTOR_RE = /connector|l\s*angle\s*\(?\s*connector/i
 const L_ANGLE_ONLY_RE = /^\s*l\s*angle\s*$/i
-const WITH_PLATE_RE = /with\s*plate/i
-const WITHOUT_PLATE_RE = /without\s*plate/i
-const SIZE_50_RE = /(?:^|[^0-9])50(?:$|[^0-9])/
-const SIZE_100_RE = /(?:^|[^0-9])100(?:$|[^0-9])/
+const NUT_RE = /^\s*nut\s*$/i
+const BOLT_RE = /^\s*bolt\s*$/i
+
+const hasSize = (label: string, size: 50 | 100): boolean =>
+  new RegExp(`(?:^|[^0-9])${size}(?:[^0-9]|$)`).test(label)
+const hasWithoutPlate = (label: string): boolean => /without\s*plate/i.test(label)
+const hasWithPlate = (label: string): boolean =>
+  /with\s*plate/i.test(label) && !hasWithoutPlate(label)
 
 interface RowMeta {
   starter50With: number
@@ -150,34 +204,50 @@ interface RowMeta {
   conn50: number
   conn100: number
   lAngle: number
+  nut: number
+  bolt: number
 }
 
-function extractRowMeta(row: SupportRow): RowMeta {
+function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowMeta {
   return {
-    starter50With: findItemQty(row, STARTER_50_RE, WITH_PLATE_RE),
-    starter50Without: findItemQty(row, STARTER_50_RE, WITHOUT_PLATE_RE),
-    starter100With: findItemQty(row, STARTER_100_RE, WITH_PLATE_RE),
-    starter100Without: findItemQty(row, STARTER_100_RE, WITHOUT_PLATE_RE),
-    conn50: findItemQty(row, CONNECTOR_RE, SIZE_50_RE),
-    conn100: findItemQty(row, CONNECTOR_RE, SIZE_100_RE),
-    lAngle: findItemQty(row, L_ANGLE_ONLY_RE, null),
+    starter50With: lookupItemQty(typeConfigs, row, STARTER_BRACKET_RE, (v) => hasSize(v, 50) && hasWithPlate(v)),
+    starter50Without: lookupItemQty(typeConfigs, row, STARTER_BRACKET_RE, (v) => hasSize(v, 50) && hasWithoutPlate(v)),
+    starter100With: lookupItemQty(typeConfigs, row, STARTER_BRACKET_RE, (v) => hasSize(v, 100) && hasWithPlate(v)),
+    starter100Without: lookupItemQty(typeConfigs, row, STARTER_BRACKET_RE, (v) => hasSize(v, 100) && hasWithoutPlate(v)),
+    conn50: lookupItemQty(typeConfigs, row, CONNECTOR_RE, (v) => hasSize(v, 50)),
+    conn100: lookupItemQty(typeConfigs, row, CONNECTOR_RE, (v) => hasSize(v, 100)),
+    lAngle: lookupItemQty(typeConfigs, row, L_ANGLE_ONLY_RE, null),
+    nut: lookupItemQty(typeConfigs, row, NUT_RE, null),
+    bolt: lookupItemQty(typeConfigs, row, BOLT_RE, null),
   }
 }
 
-const FASTENERS = {
-  starter50: 4,
-  starter100: 8,
-  conn50: 2,
-  conn100: 8,
-} as const
-
-function computeNutBolt(meta: RowMeta): { nut: number; bolt: number } {
-  const total =
-    (meta.starter50With + meta.starter50Without) * FASTENERS.starter50
-    + (meta.starter100With + meta.starter100Without) * FASTENERS.starter100
-    + meta.conn50 * FASTENERS.conn50
-    + meta.conn100 * FASTENERS.conn100
-  return { nut: total, bolt: total }
+/** Decide which SB SIZE applies to this row. Explicit row.sbSize wins;
+ *  otherwise the profile's flag values for the row's type drive it —
+ *  any flag = "100" → 100, any flag set but none = 100 → 50, blanks
+ *  → 50, mixed → "50/100". Values stripped to integers ("100.0" → "100"). */
+function inferSbSize(row: SupportRow, profile: ExternalTypeProfile | undefined): "50" | "100" | "50/100" {
+  const explicit = String(row.sbSize ?? "").trim()
+  if (/^50\s*\/\s*100$/.test(explicit) || (explicit.includes("/") && /50/.test(explicit) && /100/.test(explicit))) {
+    return "50/100"
+  }
+  if (explicit === "50") return "50"
+  if (explicit === "100") return "100"
+  if (!profile) return "50"
+  const flags = [profile.flagA, profile.flagB, profile.flagC, profile.flagD, profile.flagE]
+    .slice(0, Math.max(1, profile.members))
+    .map((f) => f.trim())
+    .filter((f) => f !== "")
+  if (flags.length === 0) return "50"
+  const norm = (f: string) => {
+    const n = parseFloat(f)
+    return Number.isFinite(n) ? String(Math.round(n)) : f
+  }
+  const has100 = flags.some((f) => norm(f) === "100")
+  const has50 = flags.some((f) => norm(f) === "50")
+  if (has100 && has50) return "50/100"
+  if (has100) return "100"
+  return "50"
 }
 
 /* ────────────────────────── sheet builder ───────────────────────── */
@@ -194,11 +264,12 @@ function styleCell(ws: XLSX.WorkSheet, row: number, col: number, style: CellStyl
 interface BuildSheetParams {
   rows: SupportRow[]
   profiles: Map<string, ExternalTypeProfile>
+  typeConfigs: SupportTypeConfig[]
   projectName: string
   hasLogo: boolean
 }
 
-function buildSheet({ rows, profiles, projectName, hasLogo }: BuildSheetParams): XLSX.WorkSheet {
+function buildSheet({ rows, profiles, typeConfigs, projectName, hasLogo }: BuildSheetParams): XLSX.WorkSheet {
   const LOGO_ROW = 0
   const TITLE_ROW = 1
   const SUBTITLE_ROW = 2
@@ -268,9 +339,8 @@ function buildSheet({ rows, profiles, projectName, hasLogo }: BuildSheetParams):
   for (const row of rows) {
     const profile = profiles.get(String(row.type ?? "").trim())
     const members = profile?.members ?? 0
-    const sbSize = String(row.sbSize ?? "").trim()
-    const meta = extractRowMeta(row)
-    const { nut, bolt } = computeNutBolt(meta)
+    const sbSize = inferSbSize(row, profile)
+    const meta = extractRowMeta(typeConfigs, row)
 
     let lp50: string | number = ""
     let lp100: string | number = ""
@@ -280,17 +350,13 @@ function buildSheet({ rows, profiles, projectName, hasLogo }: BuildSheetParams):
         const rounded = roundDisplay(computed)
         if (sbSize === "50") lp50 = rounded
         else if (sbSize === "100") lp100 = rounded
-        else if (sbSize.includes("/")) {
-          // Mixed size — defer to row-stored values below; computed value
-          // alone can't say which side gets it.
-        } else {
-          // No SB SIZE provided: default to the 100 column (common case
-          // in the source sample for unsized rows).
-          lp100 = rounded
-        }
+        // sbSize === "50/100" — the per-side breakdown only comes from
+        // the row's lProfile50/100 fields applied below; the computed
+        // total alone can't say which side gets it.
       }
     }
-    // Row-stored values override the computed value (UNIQUE/no-profile path).
+    // Row-stored values override the computed value (UNIQUE / no-profile
+    // path where the source sheet carries the value pre-summed).
     if (row.lProfile50 != null && String(row.lProfile50).trim() !== "") {
       const n = Number(String(row.lProfile50).trim())
       lp50 = Number.isFinite(n) ? roundDisplay(n) : String(row.lProfile50)
@@ -306,7 +372,9 @@ function buildSheet({ rows, profiles, projectName, hasLogo }: BuildSheetParams):
     cells.push(row.tagNumber ?? "")
     cells.push(row.level ?? "")
     cells.push(row.discipline ?? "")
-    cells.push(row.sbSize ?? "")
+    // Display the inferred SB SIZE — the explicit row value when set,
+    // otherwise the size implied by the profile's flag columns.
+    cells.push(sbSize)
     cells.push(row.type ?? "")
     for (const k of ["a", "b", "c", "d", "e", "f"] as const) {
       cells.push(String(row.lengths?.[k] ?? ""))
@@ -320,8 +388,8 @@ function buildSheet({ rows, profiles, projectName, hasLogo }: BuildSheetParams):
     cells.push(meta.starter100Without || "")
     cells.push(meta.conn50 || "")
     cells.push(meta.conn100 || "")
-    cells.push(nut || "")
-    cells.push(bolt || "")
+    cells.push(meta.nut || "")
+    cells.push(meta.bolt || "")
     cells.push(row.elevationX ?? "")
     cells.push(row.elevationY ?? "")
     cells.push(row.elevationZ ?? "")
@@ -386,6 +454,7 @@ function buildSheet({ rows, profiles, projectName, hasLogo }: BuildSheetParams):
 export async function generateExternalMTO(
   rows: SupportRow[],
   profiles: ExternalTypeProfile[],
+  typeConfigs: SupportTypeConfig[],
   projectName?: string,
   logos?: PdfLogos,
 ): Promise<Blob> {
@@ -394,6 +463,7 @@ export async function generateExternalMTO(
   const ws = buildSheet({
     rows: realRows,
     profiles: profileMap,
+    typeConfigs,
     projectName: projectName ?? "",
     hasLogo: hasUsableLogo(logos),
   })
