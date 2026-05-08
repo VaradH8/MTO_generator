@@ -522,7 +522,7 @@ function patchContentTypes(xml: string, exts: Set<string>, drawingPart: string):
   return out
 }
 
-async function injectLogosIntoXlsx(blob: Blob, logos: PdfLogos | undefined, sheetWidth: number): Promise<Blob> {
+export async function injectLogosIntoXlsx(blob: Blob, logos: PdfLogos | undefined, sheetWidth: number): Promise<Blob> {
   const left = parseLogoDataUrl(logos?.left)
   const right = parseLogoDataUrl(logos?.right)
   if (!left && !right) return blob
@@ -577,7 +577,7 @@ async function injectLogosIntoXlsx(blob: Blob, logos: PdfLogos | undefined, shee
   })
 }
 
-function hasUsableLogo(logos?: PdfLogos): boolean {
+export function hasUsableLogo(logos?: PdfLogos): boolean {
   return !!(parseLogoDataUrl(logos?.left) || parseLogoDataUrl(logos?.right))
 }
 

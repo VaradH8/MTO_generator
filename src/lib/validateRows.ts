@@ -58,6 +58,30 @@ export function validateRows(mappedRows: Record<string, unknown>[]): ValidationR
       _missingFields: [],
     }
 
+    // External MTO meta — copied through only when the upload provided
+    // them; never serialized when absent. Keeps the payload clean for
+    // pure-internal uploads.
+    const optStr = (key: string): string | undefined => {
+      const v = raw[key]
+      if (v == null) return undefined
+      const s = String(v).trim()
+      return s === "" ? undefined : s
+    }
+    const discipline = optStr("discipline")
+    if (discipline !== undefined) row.discipline = discipline
+    const sbSize = optStr("sbSize")
+    if (sbSize !== undefined) row.sbSize = sbSize
+    const lp50 = optStr("lProfile50")
+    if (lp50 !== undefined) row.lProfile50 = lp50
+    const lp100 = optStr("lProfile100")
+    if (lp100 !== undefined) row.lProfile100 = lp100
+    const ex = optStr("elevationX")
+    if (ex !== undefined) row.elevationX = ex
+    const ey = optStr("elevationY")
+    if (ey !== undefined) row.elevationY = ey
+    const ez = optStr("elevationZ")
+    if (ez !== undefined) row.elevationZ = ez
+
     row.total = calcTotal(row.lengths)
 
     let rowRequiredMissing = 0

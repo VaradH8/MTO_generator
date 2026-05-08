@@ -9,13 +9,14 @@ import { useAuth } from "@/context/AuthContext"
 import { useSettings } from "@/context/SettingsContext"
 import { generateCombinedPDF, generateSelectionPDF } from "@/lib/generatePDF"
 import { generateCombinedExcel, generateSelectionExcel } from "@/lib/generateExcel"
+import { generateExternalMTO } from "@/lib/generateExternalMTO"
 import { parseMappingFile, computeMappedTotal } from "@/lib/parseMapping"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import EmptyState from "@/components/EmptyState"
 import SupportTable from "@/components/SupportTable"
 import { LENGTH_KEYS } from "@/types/support"
-import type { SupportRow, LengthKey, GroupedSupports, SupportTypeConfig, TypeItemConfig, TypeMapping, ItemVariant, MasterTypeConfig, MasterTypeItem } from "@/types/support"
+import type { SupportRow, LengthKey, GroupedSupports, SupportTypeConfig, TypeItemConfig, TypeMapping, ItemVariant, MasterTypeConfig, MasterTypeItem, ExternalTypeProfile } from "@/types/support"
 
 interface PdfVersion {
   id: string
@@ -97,6 +98,7 @@ export default function ProjectDetailPage() {
   const [combinedXlsxStatus, setCombinedXlsxStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [selectionStatus, setSelectionStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [selectionXlsxStatus, setSelectionXlsxStatus] = useState<"ready" | "downloading" | "error">("ready")
+  const [externalMtoStatus, setExternalMtoStatus] = useState<"ready" | "downloading" | "error">("ready")
   const [showTable, setShowTable] = useState(true)
 
   // Classification filter for Combined PDF generation. Rows uploaded as
@@ -280,6 +282,32 @@ export default function ProjectDetailPage() {
       setSelectionXlsxStatus("ready")
     } catch {
       setSelectionXlsxStatus("error")
+    }
+  }
+
+  // External MTO Excel — downloads a workbook matching the
+  // RP5S_External_MTO_sample.csv layout. Pulls the TYPE → MEMBERS map
+  // from /api/settings/external-profile (admin imports it via Settings →
+  // External Type Profiles), filters the project's rows to external
+  // classification, and hands them to generateExternalMTO.
+  const handleDownloadExternalMTO = async () => {
+    if (!hasPdfs) return
+    setExternalMtoStatus("downloading")
+    try {
+      const externalRows = tableRows.filter((r) => (r.classification || "internal") === "external")
+      if (externalRows.length === 0) {
+        setExternalMtoStatus("error")
+        return
+      }
+      const profilesRes = await fetch("/api/settings/external-profile")
+      const profiles: ExternalTypeProfile[] = profilesRes.ok ? await profilesRes.json() : []
+      const blob = await generateExternalMTO(externalRows, profiles, projectName, pdfLogos)
+      const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
+      triggerDownload(blob, `${base}_external_MTO.xlsx`)
+      setExternalMtoStatus("ready")
+    } catch (err) {
+      console.error("External MTO export failed:", err)
+      setExternalMtoStatus("error")
     }
   }
 
@@ -722,6 +750,16 @@ export default function ProjectDetailPage() {
                   >
                     {combinedXlsxStatus === "downloading" ? "Generating..." : combinedXlsxStatus === "error" ? "Retry" : "Excel"}
                   </ActionButton>
+                  {tableRows.some((r) => (r.classification || "internal") === "external") && (
+                    <ActionButton
+                      variant="secondary"
+                      size="sm"
+                      loading={externalMtoStatus === "downloading"}
+                      onClick={handleDownloadExternalMTO}
+                    >
+                      {externalMtoStatus === "downloading" ? "Generating..." : externalMtoStatus === "error" ? "Retry External MTO" : "External MTO Excel"}
+                    </ActionButton>
+                  )}
                 </div>
 
                 {/* Classification picker — decides which rows + configs the PDF includes. */}

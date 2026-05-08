@@ -105,6 +105,21 @@ async function runMigrations(): Promise<void> {
        resolved_by   VARCHAR(100)
      )`,
     `CREATE INDEX IF NOT EXISTS idx_pwreset_status ON password_reset_requests(status, requested_at DESC)`,
+    // External MTO type-profile map. Stores the L_ANGLE_PROFILE.csv data
+    // verbatim — type_name -> members count plus the per-cell flags A..E
+    // (kept as text in case those values ever turn out to mean something).
+    // Keyed by type_name so re-imports upsert in place.
+    `CREATE TABLE IF NOT EXISTS external_type_profiles (
+       type_name    VARCHAR(50) PRIMARY KEY,
+       members      INTEGER NOT NULL DEFAULT 0,
+       flag_a       TEXT NOT NULL DEFAULT '',
+       flag_b       TEXT NOT NULL DEFAULT '',
+       flag_c       TEXT NOT NULL DEFAULT '',
+       flag_d       TEXT NOT NULL DEFAULT '',
+       flag_e       TEXT NOT NULL DEFAULT '',
+       imported_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       imported_by  VARCHAR(100) NOT NULL DEFAULT 'unknown'
+     )`,
   ]
   for (const sql of statements) {
     try {

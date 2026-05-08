@@ -59,6 +59,30 @@ const HEADER_ALIASES: Record<string, string> = {
   // remarks
   "remarks": "remarks",
   "remark": "remarks",
+
+  // External MTO meta — additive, populated only when the upload sheet
+  // carries these columns. Rows without them keep the field undefined and
+  // every existing renderer is unaffected.
+  "deck": "level",                 // RP5S sheets put deck in a DECK column
+  "discipline": "discipline",
+  "disc": "discipline",
+  "sb size": "sbSize",
+  "sb-size": "sbSize",
+  "sbsize": "sbSize",
+  "l profile-50": "lProfile50",
+  "l profile- 50": "lProfile50",
+  "l profile 50": "lProfile50",
+  "s2n100l": "lProfile50",
+  "l profile-100": "lProfile100",
+  "l profile- 100": "lProfile100",
+  "l profile 100": "lProfile100",
+  "s2n200l": "lProfile100",
+  "elev x": "elevationX",
+  "elevation x": "elevationX",
+  "elev y": "elevationY",
+  "elevation y": "elevationY",
+  "elev z": "elevationZ",
+  "elevation z": "elevationZ",
 }
 
 // Seed length aliases a..p → lengths.<key>

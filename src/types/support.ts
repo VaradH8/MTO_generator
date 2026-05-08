@@ -41,6 +41,21 @@ export interface SupportRow {
    * this field existed.
    */
   classification?: "internal" | "external"
+
+  /* ── External MTO meta (optional — populated only when the upload
+   *    sheet provides these columns; ignored everywhere else). The
+   *    External MTO Excel exporter reads these to fill DECK / DISCIPLINE /
+   *    SB SIZE / ELEVATION / pre-filled L PROFILE values. Old rows
+   *    without these fields render those columns blank. ──────────────── */
+  discipline?: string
+  sbSize?: string
+  /** Manually-entered L PROFILE values for UNIQUE / no-profile types. */
+  lProfile50?: string
+  lProfile100?: string
+  elevationX?: string
+  elevationY?: string
+  elevationZ?: string
+
   _rowIndex: number
   _hasErrors: boolean
   _missingFields: string[]
@@ -219,4 +234,21 @@ export interface ParseResult {
   validation: ValidationResult
   missingColumns: string[]
   detectedHeaders: string[]
+}
+
+/** External MTO type-profile entry — one per support type defined in
+ *  L_ANGLE_PROFILE.csv. `members` drives the L PROFILE length sum in the
+ *  External MTO exporter (sum of the first `members` length cells, with
+ *  cells like "576*3" treated as 3 segments of 576). flagA..E are kept
+ *  for fidelity even though only `members` is currently load-bearing. */
+export interface ExternalTypeProfile {
+  typeName: string
+  members: number
+  flagA: string
+  flagB: string
+  flagC: string
+  flagD: string
+  flagE: string
+  importedAt?: string
+  importedBy?: string
 }

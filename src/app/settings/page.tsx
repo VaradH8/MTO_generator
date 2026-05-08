@@ -6,8 +6,9 @@ import { useAuth } from "@/context/AuthContext"
 import ActionButton from "@/components/ActionButton"
 import StatusBadge from "@/components/StatusBadge"
 import * as XLSX from "xlsx"
-import type { MasterTypeItem, ItemVariant } from "@/types/support"
+import type { MasterTypeItem, ItemVariant, ExternalTypeProfile } from "@/types/support"
 import { parseConfigFile, type ParsedConfig } from "@/lib/parseConfigFile"
+import { parseExternalProfileCsv } from "@/lib/parseExternalProfile"
 
 type ManagedUser = { username: string; role: "admin" | "user" | "client"; password: string; createdAt: string }
 
@@ -224,6 +225,75 @@ export default function SettingsPage() {
       return
     }
     fetchResetRequests()
+  }
+
+  // ─── External Type Profiles (admin only — feeds the External MTO exporter)
+  const [externalProfiles, setExternalProfiles] = useState<ExternalTypeProfile[]>([])
+  const [externalProfilesError, setExternalProfilesError] = useState("")
+  const [externalImporting, setExternalImporting] = useState(false)
+  const externalProfileFileRef = useRef<HTMLInputElement>(null)
+
+  const fetchExternalProfiles = useCallback(async () => {
+    setExternalProfilesError("")
+    try {
+      const res = await fetch("/api/settings/external-profile")
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setExternalProfilesError(data.error || `Failed to load profiles (${res.status})`)
+        return
+      }
+      setExternalProfiles(await res.json())
+    } catch (e) {
+      setExternalProfilesError(e instanceof Error ? e.message : "Failed to load profiles")
+    }
+  }, [])
+
+  useEffect(() => { fetchExternalProfiles() }, [fetchExternalProfiles])
+
+  const handleExternalProfileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file || !currentUser) return
+    setExternalProfilesError("")
+    setExternalImporting(true)
+    try {
+      const text = await file.text()
+      const profiles = parseExternalProfileCsv(text)
+      if (profiles.length === 0) {
+        setExternalProfilesError("No usable rows found in the CSV.")
+        return
+      }
+      const res = await fetch("/api/settings/external-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-username": currentUser.username },
+        body: JSON.stringify({ profiles, replaceAll: true }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setExternalProfilesError(data.error || `Import failed (${res.status})`)
+        return
+      }
+      await fetchExternalProfiles()
+    } catch (err) {
+      setExternalProfilesError(err instanceof Error ? err.message : "Import failed")
+    } finally {
+      setExternalImporting(false)
+    }
+  }
+
+  const handleExternalProfileDelete = async (typeName: string) => {
+    if (!currentUser) return
+    setExternalProfilesError("")
+    const res = await fetch(`/api/settings/external-profile/${encodeURIComponent(typeName)}`, {
+      method: "DELETE",
+      headers: { "x-username": currentUser.username },
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setExternalProfilesError(data.error || `Delete failed (${res.status})`)
+      return
+    }
+    fetchExternalProfiles()
   }
 
   const handleCreateUser = async () => {
@@ -845,6 +915,82 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* ─── External Type Profiles (admin only) ───
+          Imports L_ANGLE_PROFILE-style CSVs (TYPE, MEMBERS, A..E) used by
+          the External MTO Excel exporter on the project page. Strictly
+          additive — has no effect on internal PDF/Excel flows. */}
+      {isAdmin && (
+        <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-3)", flexWrap: "wrap", gap: "var(--space-3)" }}>
+            <div>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.125rem", fontWeight: 600, color: "var(--color-text)" }}>
+                External Type Profiles ({externalProfiles.length})
+              </h2>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)", marginTop: 4 }}>
+                Maps each external support TYPE to its MEMBERS count. Used by the External MTO Excel
+                exporter to compute the L PROFILE total. Re-importing replaces the existing map.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+              <ActionButton variant="primary" size="sm" loading={externalImporting} onClick={() => externalProfileFileRef.current?.click()}>
+                {externalImporting ? "Importing…" : "Import L_ANGLE_PROFILE.csv"}
+              </ActionButton>
+              <input ref={externalProfileFileRef} type="file" accept=".csv,text/csv" onChange={handleExternalProfileImport} style={{ display: "none" }} />
+            </div>
+          </div>
+
+          {externalProfilesError && (
+            <div style={{ padding: "var(--space-2) var(--space-3)", background: "var(--color-error-soft)", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-error)", marginBottom: "var(--space-3)" }}>
+              {externalProfilesError}
+            </div>
+          )}
+
+          {externalProfiles.length === 0 ? (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-faint)" }}>
+              No profiles imported yet.
+            </p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-body)", fontSize: "0.8125rem" }}>
+                <thead>
+                  <tr style={{ background: "var(--color-surface-2)", textAlign: "left" }}>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)" }}>TYPE</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>MEMBERS</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>A</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>B</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>C</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>D</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>E</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)" }}>Imported</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {externalProfiles.map((p) => (
+                    <tr key={p.typeName}>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", fontWeight: 600 }}>{p.typeName}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>{p.members}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagA || "—"}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagB || "—"}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagC || "—"}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagD || "—"}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagE || "—"}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", color: "var(--color-text-muted)", fontSize: "0.75rem" }}>
+                        {p.importedAt ? new Date(p.importedAt).toLocaleDateString() : "—"}
+                        {p.importedBy && p.importedBy !== "unknown" ? ` · ${p.importedBy}` : ""}
+                      </td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)" }}>
+                        <ActionButton variant="ghost" size="sm" onClick={() => handleExternalProfileDelete(p.typeName)}>Remove</ActionButton>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ─── Master Type Templates ─── */}
       <div style={{ ...cardStyle, marginBottom: "var(--space-6)" }}>
