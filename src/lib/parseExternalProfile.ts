@@ -19,7 +19,14 @@ import type { ExternalTypeProfile } from "@/types/support"
  * POST the result to `/api/settings/external-profile`.
  */
 export function parseExternalProfileCsv(text: string): ExternalTypeProfile[] {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0)
+  // Strip the UTF-8 BOM if the file has one. Some editors / Excel exports
+  // prepend "﻿" and most browsers' File.text() leaves it on the
+  // string — without this strip, the first header cell reads as
+  // "﻿type" instead of "type" and the TYPE column lookup fails,
+  // which silently leaves the old profile in the DB and makes the
+  // exporter look unchanged after a re-import.
+  const cleaned = text.replace(/^﻿/, "")
+  const lines = cleaned.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0)
   if (lines.length < 2) return []
   const header = lines[0].split(",").map((h) => h.trim().toLowerCase())
   const idx = (name: string) => header.findIndex((h) => h === name)
