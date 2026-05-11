@@ -110,10 +110,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const updateProject = useCallback((id: string, updates: Partial<Pick<Project, "clientName" | "supportTypes" | "supportRange" | "mapping">>) => {
-    // Optimistic update
+    // Optimistic update for the local UI.
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)))
 
-    // Fire API call
     fetch(`/api/projects/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -123,7 +122,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (!res.ok) throw new Error(`PUT /api/projects/${id} failed: ${res.status}`)
       })
       .catch((err) => {
-        console.error("Failed to update project:", err)
+        // The server rolls back its transaction on failure, so the
+        // optimistic update we made above is now wrong — re-fetch the
+        // single project to bring the local state back in sync with
+        // what's actually persisted. Without this the user sees their
+        // change "succeed" in the UI and only discovers the lost edit
+        // after a full reload.
+        console.error("Failed to update project, re-syncing from server:", err)
+        fetch(`/api/projects/${id}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((fresh: Project | null) => {
+            if (!fresh) return
+            setProjects((prev) => prev.map((p) => (p.id === id ? fresh : p)))
+          })
+          .catch(() => { /* offline — leave optimistic state */ })
       })
   }, [])
 

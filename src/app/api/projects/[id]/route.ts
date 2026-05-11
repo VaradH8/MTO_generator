@@ -109,20 +109,29 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    await ensureMigrations()
-    const { id } = await params
-    const body = await req.json()
-    const { clientName, supportRange, supportTypes, mapping } = body
+  await ensureMigrations()
+  const { id } = await params
+  const body = await req.json()
+  const { clientName, supportRange, supportTypes, mapping } = body
 
-    // Check project exists
-    const { rows: existing } = await pool.query(
-      `SELECT id FROM projects WHERE id = $1`,
-      [id]
-    )
-    if (existing.length === 0) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 })
-    }
+  // Check project exists
+  const { rows: existing } = await pool.query(
+    `SELECT id FROM projects WHERE id = $1`,
+    [id]
+  )
+  if (existing.length === 0) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 })
+  }
+
+  // Wrap the whole update in a transaction so a partial failure
+  // (e.g. a single bad item_id causing the second INSERT to throw)
+  // doesn't leave the project with the old types DELETEd and the new
+  // ones never inserted — the previous code path's silent data-loss
+  // bug. With ROLLBACK on any error, an aborted save preserves the
+  // prior state verbatim.
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
 
     // Update basic fields if provided
     if (clientName !== undefined || supportRange !== undefined || mapping !== undefined) {
@@ -144,48 +153,72 @@ export async function PUT(
       }
 
       values.push(id)
-      await pool.query(
+      await client.query(
         `UPDATE projects SET ${setClauses.join(", ")} WHERE id = $${idx}`,
         values
       )
     }
 
-    // Replace support types if provided
+    // Replace support types if provided (transactional)
     if (supportTypes !== undefined && Array.isArray(supportTypes)) {
-      // Delete existing support types (cascades to items)
-      await pool.query(
+      await client.query(
         `DELETE FROM project_support_types WHERE project_id = $1`,
         [id]
       )
 
-      // Insert new support types and their items
       for (const st of supportTypes) {
-        const wp = String(st.withPlate ?? "")
-        const wop = String(st.withoutPlate ?? "")
-        const { rows: inserted } = await pool.query(
+        const wp = String(st?.withPlate ?? "")
+        const wop = String(st?.withoutPlate ?? "")
+        const { rows: inserted } = await client.query(
           `INSERT INTO project_support_types (project_id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty)
            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-          [id, st.typeName, st.classification || "internal", wp !== "", wop !== "", wp, wop]
+          [
+            id,
+            String(st?.typeName ?? "").trim(),
+            String(st?.classification ?? "internal") === "external" ? "external" : "internal",
+            wp !== "",
+            wop !== "",
+            wp,
+            wop,
+          ]
         )
         const typeId = inserted[0].id
 
-        if (st.items && Array.isArray(st.items)) {
+        if (st?.items && Array.isArray(st.items)) {
           for (const item of st.items) {
-            const variantsJson = Array.isArray(item.variants) ? JSON.stringify(item.variants) : "[]"
-            await pool.query(
+            // Coalesce every field to a safe default so a master item
+            // missing one (e.g. itemId undefined) still inserts cleanly
+            // instead of tripping the NOT NULL constraint and rolling
+            // the whole save back.
+            const variantsJson = Array.isArray(item?.variants) ? JSON.stringify(item.variants) : "[]"
+            await client.query(
               `INSERT INTO project_type_items (project_support_type_id, item_id, item_name, qty, make, model, variants, with_plate, without_plate)
                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
-              [typeId, item.itemId, item.itemName, item.qty || "", item.make || "", item.model || "", variantsJson, !!item.withPlate, !!item.withoutPlate]
+              [
+                typeId,
+                String(item?.itemId ?? ""),
+                String(item?.itemName ?? ""),
+                String(item?.qty ?? ""),
+                String(item?.make ?? ""),
+                String(item?.model ?? ""),
+                variantsJson,
+                !!item?.withPlate,
+                !!item?.withoutPlate,
+              ]
             )
           }
         }
       }
     }
 
+    await client.query("COMMIT")
     return NextResponse.json({ success: true, id })
   } catch (error: unknown) {
+    await client.query("ROLLBACK").catch(() => { /* swallow rollback errors */ })
     const message = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json({ error: message }, { status: 500 })
+  } finally {
+    client.release()
   }
 }
 
