@@ -278,23 +278,39 @@ function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowM
   }
 }
 
-/** Decide which SB SIZE applies to this row. Explicit row.sbSize wins;
- *  otherwise the profile's flag values for the row's type drive it —
- *  any flag = "100" → 100, any flag set but none = 100 → 50, blanks
- *  → 50, mixed → "50/100". Values stripped to integers ("100.0" → "100"). */
-function inferSbSize(row: SupportRow, profile: ExternalTypeProfile | undefined): "50" | "100" | "50/100" {
+/** Decide which output column the row's L PROFILE total lands in. Three
+ *  valid routes:
+ *    - "50"      → L PROFILE-50
+ *    - "100"     → L PROFILE-100
+ *    - "L ANGLE" → L ANGLE column (used for simple L-angle pieces where
+ *                  the part isn't sized 50 or 100 mm)
+ *    - "50/100"  → mixed; per-side values come from row.lProfile50/100
+ *
+ *  Explicit row.sbSize wins; otherwise the profile's flag values for
+ *  the row's type drive it — any "L ANGLE" token in the flags routes
+ *  to the L ANGLE column, otherwise 100 vs 50 follows the numeric
+ *  flag values. Numeric values are normalized so "100.0" matches "100". */
+type LpRoute = "50" | "100" | "50/100" | "L ANGLE"
+function inferSbSize(row: SupportRow, profile: ExternalTypeProfile | undefined): LpRoute {
   const explicit = String(row.sbSize ?? "").trim()
   if (/^50\s*\/\s*100$/.test(explicit) || (explicit.includes("/") && /50/.test(explicit) && /100/.test(explicit))) {
     return "50/100"
   }
   if (explicit === "50") return "50"
   if (explicit === "100") return "100"
+  if (/^l\s*angle$/i.test(explicit)) return "L ANGLE"
   if (!profile) return "50"
   const flags = [profile.flagA, profile.flagB, profile.flagC, profile.flagD, profile.flagE]
     .slice(0, Math.max(1, profile.members))
     .map((f) => f.trim())
     .filter((f) => f !== "")
   if (flags.length === 0) return "50"
+  const isLAngleToken = (f: string) => /l\s*angle/i.test(f)
+  // If every populated flag says "L ANGLE", route to the L ANGLE column.
+  // (A type can't sensibly route to both L ANGLE and a size in the same
+  //  schedule row; if the user mixes them we fall through to the size
+  //  rules below.)
+  if (flags.length > 0 && flags.every(isLAngleToken)) return "L ANGLE"
   const norm = (f: string) => {
     const n = parseFloat(f)
     return Number.isFinite(n) ? String(Math.round(n)) : f
@@ -402,6 +418,7 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
 
     let lp50: string | number = ""
     let lp100: string | number = ""
+    let lAngleTotal: string | number = ""
     // Mapping factors (when present) drive the total; otherwise we fall
     // back to the profile's MEMBERS count.
     if (typeMapping || members > 0) {
@@ -410,6 +427,7 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
         const rounded = roundDisplay(computed)
         if (sbSize === "50") lp50 = rounded
         else if (sbSize === "100") lp100 = rounded
+        else if (sbSize === "L ANGLE") lAngleTotal = rounded
         // sbSize === "50/100" — the per-side breakdown only comes from
         // the row's lProfile50/100 fields applied below; the computed
         // total alone can't say which side gets it.
@@ -441,7 +459,10 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     }
     cells.push(lp50)
     cells.push(lp100)
-    cells.push(meta.lAngle || "")
+    // L ANGLE column: routed total wins over item qty (so a type whose
+    // profile flag says "L ANGLE" displays the summed length here
+    // rather than the configured L ANGLE item count).
+    cells.push(lAngleTotal !== "" ? lAngleTotal : (meta.lAngle || ""))
     cells.push(meta.starter50With || "")
     cells.push(meta.starter50Without || "")
     cells.push(meta.starter100With || "")
