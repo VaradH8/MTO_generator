@@ -322,7 +322,10 @@ export default function ProjectDetailPage() {
           withoutPlate: mt.withoutPlate,
         }))
       const mergedExternalConfigs = [...projectExternal, ...masterExternalFallback]
-      const blob = await generateExternalMTO(externalRows, profiles, mergedExternalConfigs, projectName, pdfLogos)
+      // L PROFILE total uses the project's mapping factors when set
+      // for the row's type; routing (which of the 50/100 columns to
+      // land in) still comes from the L_ANGLE_PROFILE flags.
+      const blob = await generateExternalMTO(externalRows, profiles, mergedExternalConfigs, projectMapping, projectName, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_external_MTO.xlsx`)
       setExternalMtoStatus("ready")

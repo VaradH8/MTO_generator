@@ -1,7 +1,13 @@
 import * as XLSX from "xlsx-js-style"
-import type { SupportRow, ExternalTypeProfile, SupportTypeConfig } from "@/types/support"
+import type { SupportRow, ExternalTypeProfile, SupportTypeConfig, TypeMapping } from "@/types/support"
 import { isRealRow, roundDisplay, type PdfLogos } from "./generatePDF"
 import { injectLogosIntoXlsx, hasUsableLogo } from "./generateExcel"
+import { computeMappedTotal } from "./parseMapping"
+
+/** Per-project mapping (typeName → TypeMapping) — same shape as the
+ *  internal flow uses for the row TOTAL. Drives the L PROFILE
+ *  summation when present; profile's MEMBERS is the fallback. */
+type ProjectMapping = Record<string, TypeMapping>
 
 /**
  * External MTO Excel exporter — produces a workbook matching the
@@ -23,13 +29,21 @@ import { injectLogosIntoXlsx, hasUsableLogo } from "./generateExcel"
  *   - logos          : optional top-corner logos (same shape PdfLogos)
  *
  * Computed columns:
- *   L PROFILE-50 / L PROFILE-100 — sum of the first MEMBERS length
- *     cells (cells like "576*3" treated as 3 segments of 576). Routed
- *     to the 50 or 100 column based on the row's SB SIZE when set; if
- *     SB SIZE is empty, derived from the profile's flag values for
- *     that TYPE — flags = "100" → SB SIZE 100, flags blank or non-100
- *     → SB SIZE 50, mixed → "50/100". The SB SIZE column on the row
- *     also displays the inferred value.
+ *   L PROFILE-50 / L PROFILE-100 — total of the row's length cells.
+ *     When the project has a Mapping.xlsx entry for the row's TYPE,
+ *     the mapped factors drive the sum (same `Σ lengths × factor`
+ *     formula the internal flow uses for the row TOTAL). Otherwise,
+ *     falls back to the L_ANGLE_PROFILE's MEMBERS count (sum of the
+ *     first N length cells, with cells like "576*3" treated as 3
+ *     segments of 576).
+ *
+ *     Routing — which of the two columns the total lands in — always
+ *     comes from the profile's flag values for that TYPE: flags =
+ *     "100" → L PROFILE-100, flags blank or non-100 → L PROFILE-50,
+ *     mixed flags → "50/100" (per-side values then come from the
+ *     row's lProfile50 / lProfile100). row.sbSize overrides the
+ *     profile when present. The SB SIZE column displays the
+ *     resolved value.
  *
  *   NUT / BOLT — read directly from the type config (NUT and BOLT
  *     items, item.qty). The user fills these in from the master /
@@ -106,16 +120,31 @@ function parseLengthCellSegments(raw: string): { total: number; segments: number
   return Number.isFinite(x) ? { total: x, segments: 1 } : { total: 0, segments: 0 }
 }
 
-/** Sum the first `members` length segments across A..F. */
-function computeLProfileLength(row: SupportRow, members: number): number {
+/** Compute the L PROFILE total for a row. Prefers the project mapping's
+ *  factors (same Σ length × factor formula the internal TOTAL uses) when
+ *  the row's TYPE has a mapping entry with at least one factor; otherwise
+ *  falls back to the profile's MEMBERS count (sum of the first N segments
+ *  across A..F, where a cell like "576*3" contributes 3 segments of 576). */
+function computeLProfileLength(
+  row: SupportRow,
+  mapping: TypeMapping | undefined,
+  members: number,
+): number {
+  if (mapping && Object.keys(mapping.factors).length > 0) {
+    // computeMappedTotal returns a string (formatted with up to 2dp); we
+    // need the numeric value back so the caller can round it consistently.
+    const raw = computeMappedTotal(row.lengths, mapping)
+    const n = parseFloat(raw)
+    return Number.isFinite(n) ? n : 0
+  }
   if (members <= 0) return 0
   let total = 0
   let count = 0
   for (const k of ["a", "b", "c", "d", "e", "f"] as const) {
     if (count >= members) break
-    const raw = String(row.lengths?.[k] ?? "").trim()
-    if (!raw) continue
-    const { total: t, segments } = parseLengthCellSegments(raw)
+    const cell = String(row.lengths?.[k] ?? "").trim()
+    if (!cell) continue
+    const { total: t, segments } = parseLengthCellSegments(cell)
     total += t
     count += segments
   }
@@ -292,11 +321,12 @@ interface BuildSheetParams {
   rows: SupportRow[]
   profiles: Map<string, ExternalTypeProfile>
   typeConfigs: SupportTypeConfig[]
+  mapping: ProjectMapping
   projectName: string
   hasLogo: boolean
 }
 
-function buildSheet({ rows, profiles, typeConfigs, projectName, hasLogo }: BuildSheetParams): XLSX.WorkSheet {
+function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo }: BuildSheetParams): XLSX.WorkSheet {
   const LOGO_ROW = 0
   const TITLE_ROW = 1
   const SUBTITLE_ROW = 2
@@ -366,13 +396,16 @@ function buildSheet({ rows, profiles, typeConfigs, projectName, hasLogo }: Build
   for (const row of rows) {
     const profile = profiles.get(String(row.type ?? "").trim())
     const members = profile?.members ?? 0
+    const typeMapping = mapping[String(row.type ?? "").trim()]
     const sbSize = inferSbSize(row, profile)
     const meta = extractRowMeta(typeConfigs, row)
 
     let lp50: string | number = ""
     let lp100: string | number = ""
-    if (members > 0) {
-      const computed = computeLProfileLength(row, members)
+    // Mapping factors (when present) drive the total; otherwise we fall
+    // back to the profile's MEMBERS count.
+    if (typeMapping || members > 0) {
+      const computed = computeLProfileLength(row, typeMapping, members)
       if (computed > 0) {
         const rounded = roundDisplay(computed)
         if (sbSize === "50") lp50 = rounded
@@ -482,6 +515,7 @@ export async function generateExternalMTO(
   rows: SupportRow[],
   profiles: ExternalTypeProfile[],
   typeConfigs: SupportTypeConfig[],
+  mapping: ProjectMapping,
   projectName?: string,
   logos?: PdfLogos,
 ): Promise<Blob> {
@@ -491,6 +525,7 @@ export async function generateExternalMTO(
     rows: realRows,
     profiles: profileMap,
     typeConfigs,
+    mapping,
     projectName: projectName ?? "",
     hasLogo: hasUsableLogo(logos),
   })
