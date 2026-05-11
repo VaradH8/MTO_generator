@@ -301,12 +301,28 @@ export default function ProjectDetailPage() {
       }
       const profilesRes = await fetch("/api/settings/external-profile")
       const profiles: ExternalTypeProfile[] = profilesRes.ok ? await profilesRes.json() : []
-      // Pass the project's external type configs — the exporter reads
-      // STARTER BRACKET / L ANGLE (Connector) / NUT / BOLT counts (with
-      // variant labels like "50 With Plate") from there rather than
-      // computing them.
-      const externalTypeConfigs = typeConfigs.filter((tc) => (tc.classification || "internal") === "external")
-      const blob = await generateExternalMTO(externalRows, profiles, externalTypeConfigs, projectName, pdfLogos)
+      // Build the type-config set the exporter reads STARTER BRACKET /
+      // L ANGLE (Connector) / NUT / BOLT counts from. Start with the
+      // project's external types and fall back to master external
+      // types for any type the project hasn't pulled in explicitly —
+      // so a user who configured items in Master without clicking
+      // "+ Add from Master…" on the project still gets populated
+      // columns. Project entries always win over master entries with
+      // the same typeName.
+      const projectExternal = typeConfigs.filter((tc) => (tc.classification || "internal") === "external")
+      const projectTypeNames = new Set(projectExternal.map((t) => t.typeName.trim().toLowerCase()))
+      const masterExternalFallback: SupportTypeConfig[] = masterTypes
+        .filter((mt) => mt.classification === "external")
+        .filter((mt) => !projectTypeNames.has(mt.typeName.trim().toLowerCase()))
+        .map((mt) => ({
+          typeName: mt.typeName,
+          classification: mt.classification,
+          items: mt.items,
+          withPlate: mt.withPlate,
+          withoutPlate: mt.withoutPlate,
+        }))
+      const mergedExternalConfigs = [...projectExternal, ...masterExternalFallback]
+      const blob = await generateExternalMTO(externalRows, profiles, mergedExternalConfigs, projectName, pdfLogos)
       const base = (projectName || "project").replace(/[^a-zA-Z0-9]/g, "_")
       triggerDownload(blob, `${base}_external_MTO.xlsx`)
       setExternalMtoStatus("ready")

@@ -131,51 +131,78 @@ function resolveTypeConfig(typeConfigs: SupportTypeConfig[], row: SupportRow): S
 }
 
 /** Look up an item qty inside a type config. Picks the first item whose
- *  name matches `itemRe`. When `variantPredicate` is provided, only
- *  variants whose label satisfies the predicate are considered (variant
- *  qty is returned). When `variantPredicate` is null, the item's
- *  top-level qty is returned. Falls back to row.itemQtys when nothing
- *  is found in the type config so legacy data still surfaces something
- *  rather than going blank. */
+ *  name matches `itemRe`.
+ *
+ *  When `combinedPredicate` is provided, the predicate is evaluated
+ *  against the **item name + variant label** joined with a space, so
+ *  the size / with-plate tokens are matched regardless of whether they
+ *  live on the item name or the variant. That handles the three naming
+ *  styles users commonly pick:
+ *    - "STARTER BRACKET" + variants "50 With Plate" / "100 Without Plate"
+ *    - "STARTER BRACKET-50" + variants "With Plate" / "Without Plate"
+ *    - "STARTER BRACKET-50 With Plate" as a standalone item, no variants
+ *  All three end up matching the same predicate.
+ *
+ *  When `combinedPredicate` is null (e.g. for NUT and BOLT), the item's
+ *  top-level qty is returned; if absent, the variant qtys are summed
+ *  so a user who modelled NUT with per-size variants still gets a
+ *  meaningful number.
+ *
+ *  Falls back to row.itemQtys when nothing is found in the type config
+ *  so legacy uploads still surface a value rather than going blank. */
 function lookupItemQty(
   typeConfigs: SupportTypeConfig[],
   row: SupportRow,
   itemRe: RegExp,
-  variantPredicate: ((label: string) => boolean) | null,
+  combinedPredicate: ((combined: string) => boolean) | null,
 ): number {
   const tc = resolveTypeConfig(typeConfigs, row)
   if (tc) {
     for (const item of tc.items) {
       if (!itemRe.test(item.itemName)) continue
-      if (variantPredicate) {
+      if (combinedPredicate) {
+        // Try item name + each variant label as the combined string.
         if (item.variants && item.variants.length > 0) {
           for (const v of item.variants) {
-            if (!variantPredicate(v.label)) continue
-            const n = parseFloat(String(v.qty ?? "").trim())
-            if (Number.isFinite(n) && n > 0) return n
+            const combined = `${item.itemName} ${v.label}`
+            if (combinedPredicate(combined)) {
+              const n = parseFloat(String(v.qty ?? "").trim())
+              if (Number.isFinite(n) && n > 0) return n
+            }
           }
         }
-        // Fallback: variant predicate matches the item name itself
-        // (e.g., a literal item named "STARTER BRACKET-50 WITH PLATE"
-        // with no variants).
-        if (variantPredicate(item.itemName)) {
+        // Try the item name alone (standalone item without variants,
+        // or as a fallback for variant-bearing items where the name
+        // itself carries enough tokens to match — e.g. an item literally
+        // called "STARTER BRACKET-50 WITH PLATE").
+        if (combinedPredicate(item.itemName)) {
           const n = parseFloat(String(item.qty ?? "").trim())
           if (Number.isFinite(n) && n > 0) return n
         }
       } else {
-        const n = parseFloat(String(item.qty ?? "").trim())
-        if (Number.isFinite(n) && n > 0) return n
+        // NUT / BOLT path — no size/plate predicate to filter on.
+        const topN = parseFloat(String(item.qty ?? "").trim())
+        if (Number.isFinite(topN) && topN > 0) return topN
+        // If the user modelled them with variants, sum the variant qtys.
+        if (item.variants && item.variants.length > 0) {
+          let sum = 0
+          for (const v of item.variants) {
+            const n = parseFloat(String(v.qty ?? "").trim())
+            if (Number.isFinite(n) && n > 0) sum += n
+          }
+          if (sum > 0) return sum
+        }
       }
     }
   }
   // Legacy fallback — only consulted when the type config didn't carry
-  // a matching item. Same-shape lookup against row.itemQtys.
+  // a matching item. Same combined-string match against row.itemQtys.
   for (const [item, variants] of Object.entries(row.itemQtys ?? {})) {
     if (!itemRe.test(item)) continue
     for (const [variant, qty] of Object.entries(variants)) {
-      if (variantPredicate) {
-        if (variant && !variantPredicate(variant)) continue
-        if (!variant && !variantPredicate(item)) continue
+      if (combinedPredicate) {
+        const combined = variant ? `${item} ${variant}` : item
+        if (!combinedPredicate(combined)) continue
       }
       const n = parseFloat(String(qty).trim())
       if (Number.isFinite(n) && n > 0) return n
@@ -184,9 +211,9 @@ function lookupItemQty(
   return 0
 }
 
-const STARTER_BRACKET_RE = /starter\s*bracket/i
-const CONNECTOR_RE = /connector|l\s*angle\s*\(?\s*connector/i
-const L_ANGLE_ONLY_RE = /^\s*l\s*angle\s*$/i
+const STARTER_BRACKET_RE = /starter[\s_-]*bracket/i
+const CONNECTOR_RE = /connector/i
+const L_ANGLE_ONLY_RE = /^\s*l[\s_-]*angle\s*$/i
 const NUT_RE = /^\s*nut\s*$/i
 const BOLT_RE = /^\s*bolt\s*$/i
 
