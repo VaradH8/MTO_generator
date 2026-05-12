@@ -344,7 +344,11 @@ function inferSbSize(row: SupportRow, profile: ExternalTypeProfile | undefined):
 
 /* ────────────────────────── sheet builder ───────────────────────── */
 
-const COLUMN_COUNT = 27
+// 26 columns after dropping DISCIPLINE from the rendered output. The
+// row's `discipline` field is still recognised by parseExcel and stored
+// on the SupportRow — we just don't render it here. Removing it from
+// the schedule on user request (project page → External MTO Excel).
+const COLUMN_COUNT = 26
 
 function styleCell(ws: XLSX.WorkSheet, row: number, col: number, style: CellStyle): void {
   const ref = XLSX.utils.encode_cell({ r: row, c: col })
@@ -384,25 +388,26 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     { content: "SL NO", rowSpan: 2 },          // 0
     { content: "SUPPORT NO.", rowSpan: 2 },    // 1
     { content: "DECK", rowSpan: 2 },           // 2
-    { content: "DISCIPLINE", rowSpan: 2 },     // 3
-    { content: "SB SIZE", rowSpan: 2 },        // 4
-    { content: "TYPE", rowSpan: 2 },           // 5
-    { content: "LENGTH (mm)", colSpan: 6 },    // 6-11
-    { content: "L PROFILE-50" },               // 12 (sub: S2N100L)
-    { content: "L PROFILE-100" },              // 13 (sub: S2N200L)
-    { content: "L ANGLE", rowSpan: 2 },        // 14
-    { content: "STARTER BRACKET-50", colSpan: 2 },   // 15-16
-    { content: "STARTER BRACKET-100", colSpan: 2 },  // 17-18
-    { content: "L ANGLE (Connector)", colSpan: 2 }, // 19-20
-    { content: "NUT", rowSpan: 2 },            // 21
-    { content: "BOLT", rowSpan: 2 },           // 22
-    { content: "ELEVATION", colSpan: 3 },      // 23-25
-    { content: "REMARKS", rowSpan: 2 },        // 26
+    { content: "SB SIZE", rowSpan: 2 },        // 3
+    { content: "TYPE", rowSpan: 2 },           // 4
+    { content: "LENGTH (mm)", colSpan: 6 },    // 5-10
+    { content: "L PROFILE-50" },               // 11 (sub: S2N100L)
+    { content: "L PROFILE-100" },              // 12 (sub: S2N200L)
+    { content: "L ANGLE", rowSpan: 2 },        // 13
+    { content: "STARTER BRACKET-50", colSpan: 2 },   // 14-15
+    { content: "STARTER BRACKET-100", colSpan: 2 },  // 16-17
+    { content: "L ANGLE (Connector)", colSpan: 2 }, // 18-19
+    { content: "NUT", rowSpan: 2 },            // 20
+    { content: "BOLT", rowSpan: 2 },           // 21
+    { content: "ELEVATION", colSpan: 3 },      // 22-24
+    { content: "REMARKS", rowSpan: 2 },        // 25
   ]
 
-  // Row 2 sub-header (one entry per real column).
+  // Row 2 sub-header (one entry per real column). Five empty slots for
+  // the rowSpan-2 meta columns (SL NO, SUPPORT NO., DECK, SB SIZE,
+  // TYPE) followed by the LENGTH leaves, then per-column subs.
   const head2: string[] = [
-    "", "", "", "", "", "",
+    "", "", "", "", "",
     "A", "B", "C", "D", "E", "F",
     "S2N100L",
     "S2N200L",
@@ -473,7 +478,9 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     cells.push(slNo++)
     cells.push(row.tagNumber ?? "")
     cells.push(row.level ?? "")
-    cells.push(row.discipline ?? "")
+    // DISCIPLINE column removed from the schedule. row.discipline is
+    // still parsed from uploads and held on the SupportRow — just not
+    // rendered into the External MTO Excel.
     // Display the inferred SB SIZE — the explicit row value when set,
     // otherwise the size implied by the profile's flag columns.
     cells.push(sbSize)
@@ -515,9 +522,10 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
   const ws = XLSX.utils.aoa_to_sheet(data)
   ws["!merges"] = merges
 
-  // Column widths roughly tuned to the labels.
+  // Column widths roughly tuned to the labels. 26 entries — the
+  // DISCIPLINE width (14) used to sit between DECK and SB SIZE.
   const widths = [
-    6, 18, 8, 14, 8, 6,
+    6, 18, 8, 8, 6,
     8, 8, 8, 8, 8, 8,
     11, 11,
     8,
