@@ -279,12 +279,27 @@ const L_ANGLE_V_FLAT = 8
 const BOLTS_PER_SB_50 = 4
 const BOLTS_PER_SB_100 = 8
 
-function computeBoltsFromConfig(meta: RowMeta): number {
+/** Compute the BOLT / NUT cell value. The user-configured override (from
+ *  the type editor's NUT qty / BOLT qty box) takes the place of the
+ *  *flat* L ANGLE U/V addition only — it does NOT replace the per-piece
+ *  SB multiplier. So config qty "2" with one SB-50 WoP = `2 + 1×4 = 6`,
+ *  not just `2`. Empty config qty falls back to the drawing's default
+ *  flats (2 when any SB-50 on the row, 8 when any SB-100). Returns
+ *  null when there's no contribution at all and the caller should fall
+ *  through to the legacy routed / item-lookup fallback. */
+function computeBoltsCell(meta: RowMeta, override: string): number | null {
   const sb50 = (meta.starter50With || 0) + (meta.starter50Without || 0)
   const sb100 = (meta.starter100With || 0) + (meta.starter100Without || 0)
-  const lAngleU = sb50 > 0 ? L_ANGLE_U_FLAT : 0
-  const lAngleV = sb100 > 0 ? L_ANGLE_V_FLAT : 0
-  return lAngleU + lAngleV + sb50 * BOLTS_PER_SB_50 + sb100 * BOLTS_PER_SB_100
+  const sbBolts = sb50 * BOLTS_PER_SB_50 + sb100 * BOLTS_PER_SB_100
+  const trimmedOverride = override.trim()
+  if (trimmedOverride !== "") {
+    const n = parseFloat(trimmedOverride)
+    const flat = Number.isFinite(n) ? n : 0
+    return flat + sbBolts
+  }
+  const defaultFlat = (sb50 > 0 ? L_ANGLE_U_FLAT : 0) + (sb100 > 0 ? L_ANGLE_V_FLAT : 0)
+  const total = defaultFlat + sbBolts
+  return total > 0 ? total : null
 }
 
 function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowMeta {
@@ -530,31 +545,24 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     cells.push(meta.starter100Without || "")
     cells.push(meta.conn50 || "")
     cells.push(meta.conn100 || "")
-    // NUT / BOLT columns. Priority order:
-    //   1. Type-config nutQty / boltQty (explicit override from the
-    //      support-type editor — wins over everything else).
-    //   2. Drawing-033764 formula:
-    //        (2 if any SB-50 on row, else 0)  ← L ANGLE U flat
-    //      + (8 if any SB-100 on row, else 0) ← L ANGLE V flat
-    //      + (SB-50 WP + WoP) × 4
-    //      + (SB-100 WP + WoP) × 8
-    //      NUT count mirrors BOLT.
-    //   3. Routed total from the L_ANGLE_PROFILE flags (e.g., flag "NUT").
-    //   4. Item lookup (NUT / BOLT items in the type's item list).
-    const sbBolts = computeBoltsFromConfig(meta)
-    if (configNutQty !== "") {
-      const n = parseFloat(configNutQty)
-      cells.push(Number.isFinite(n) ? n : configNutQty)
-    } else if (sbBolts > 0) {
-      cells.push(sbBolts)
+    // NUT / BOLT columns. Order:
+    //   1. Compute (override-or-default flat) + SB-50 × 4 + SB-100 × 8.
+    //      The user-configured nutQty / boltQty REPLACES the flat 2/8
+    //      L ANGLE U/V addition but does NOT replace the per-piece SB
+    //      contribution — so override "2" on a row with one SB-50 WoP
+    //      produces 2 + 4 = 6, not just 2.
+    //   2. If the formula produced nothing (no override, no SB), fall
+    //      back to L_ANGLE_PROFILE flag-routed total, then the legacy
+    //      NUT / BOLT item lookup.
+    const nutComputed = computeBoltsCell(meta, configNutQty)
+    if (nutComputed !== null) {
+      cells.push(nutComputed)
     } else {
       cells.push(nutRouted !== "" ? nutRouted : (meta.nut || ""))
     }
-    if (configBoltQty !== "") {
-      const n = parseFloat(configBoltQty)
-      cells.push(Number.isFinite(n) ? n : configBoltQty)
-    } else if (sbBolts > 0) {
-      cells.push(sbBolts)
+    const boltComputed = computeBoltsCell(meta, configBoltQty)
+    if (boltComputed !== null) {
+      cells.push(boltComputed)
     } else {
       cells.push(boltRouted !== "" ? boltRouted : (meta.bolt || ""))
     }
