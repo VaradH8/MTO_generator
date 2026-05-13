@@ -260,80 +260,32 @@ interface RowMeta {
   conn50: number
   conn100: number
   lAngle: number
-  /** L ANGLE item, variant labelled "U" (legend U on drawing 033764 — the
-   *  50-side L ANGLE, S2N3501C, 2 bolts per piece). */
-  lAngleU: number
-  /** L ANGLE item, variant labelled "V" (legend V on drawing 033764 — the
-   *  100-side L ANGLE, S2N4501C, 8 bolts per piece). */
-  lAngleV: number
   nut: number
   bolt: number
 }
 
-/** Bolt-per-piece counts from "Bolt details of external components"
- *  (drawing 033764 SHT 0001):
- *    - L ANGLE U (50) → 2 bolts each
- *    - L ANGLE V (100) → 8 bolts each
- *    - STARTER BRACKET-50 (with or without plate) → 4 bolts each
- *    - STARTER BRACKET-100 (with or without plate) → 8 bolts each
+/** Bolt counts from "Bolt details of external components" (drawing 033764
+ *  SHT 0001). Two parts to the formula:
+ *    - Flat additions (the L ANGLE U / V bolts that ship with every SB
+ *      side once, regardless of how many SB pieces): 2 for the U-side
+ *      when any SB-50 is present, 8 for the V-side when any SB-100 is
+ *      present.
+ *    - Per-bracket multipliers: 4 bolts for every SB-50 piece (with or
+ *      without plate), 8 bolts for every SB-100 piece.
  *  NUT count mirrors BOLT in fabrication MTOs. Applied when the type
  *  config doesn't carry an explicit nutQty / boltQty override. */
-const BOLTS_PER_L_ANGLE_U = 2
-const BOLTS_PER_L_ANGLE_V = 8
+const L_ANGLE_U_FLAT = 2
+const L_ANGLE_V_FLAT = 8
 const BOLTS_PER_SB_50 = 4
 const BOLTS_PER_SB_100 = 8
 
 function computeBoltsFromConfig(meta: RowMeta): number {
   const sb50 = (meta.starter50With || 0) + (meta.starter50Without || 0)
   const sb100 = (meta.starter100With || 0) + (meta.starter100Without || 0)
-  return (
-    (meta.lAngleU || 0) * BOLTS_PER_L_ANGLE_U +
-    (meta.lAngleV || 0) * BOLTS_PER_L_ANGLE_V +
-    sb50 * BOLTS_PER_SB_50 +
-    sb100 * BOLTS_PER_SB_100
-  )
+  const lAngleU = sb50 > 0 ? L_ANGLE_U_FLAT : 0
+  const lAngleV = sb100 > 0 ? L_ANGLE_V_FLAT : 0
+  return lAngleU + lAngleV + sb50 * BOLTS_PER_SB_50 + sb100 * BOLTS_PER_SB_100
 }
-
-/** Sum the qty for any variant on items matching `itemRe` whose label
- *  matches `variantPredicate`. Falls back to row.itemQtys when nothing
- *  matched in the type config. Returns 0 if nothing matches anywhere. */
-function lookupVariantQty(
-  typeConfigs: SupportTypeConfig[],
-  row: SupportRow,
-  itemRe: RegExp,
-  variantPredicate: (label: string) => boolean,
-): number {
-  const tc = resolveTypeConfig(typeConfigs, row)
-  if (tc) {
-    for (const item of tc.items) {
-      if (!itemRe.test(item.itemName)) continue
-      if (item.variants && item.variants.length > 0) {
-        for (const v of item.variants) {
-          if (variantPredicate(v.label)) {
-            const n = parseFloat(String(v.qty ?? "").trim())
-            if (Number.isFinite(n) && n > 0) return n
-          }
-        }
-      }
-    }
-  }
-  for (const [item, variants] of Object.entries(row.itemQtys ?? {})) {
-    if (!itemRe.test(item)) continue
-    for (const [variantLabel, qty] of Object.entries(variants)) {
-      if (variantPredicate(variantLabel)) {
-        const n = parseFloat(String(qty).trim())
-        if (Number.isFinite(n) && n > 0) return n
-      }
-    }
-  }
-  return 0
-}
-
-/** Match a variant label whose payload is a standalone letter (e.g. the
- *  L ANGLE "U" / "V" legends on drawing 033764). Whole-token match so
- *  "UV-50" or "ROUND" don't accidentally match "U". */
-const isVariantLetter = (label: string, letter: "U" | "V"): boolean =>
-  new RegExp(`(?:^|[^a-zA-Z0-9])${letter}(?:[^a-zA-Z0-9]|$)`, "i").test(label)
 
 function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowMeta {
   return {
@@ -344,8 +296,6 @@ function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowM
     conn50: lookupItemQty(typeConfigs, row, CONNECTOR_RE, (v) => hasSize(v, 50)),
     conn100: lookupItemQty(typeConfigs, row, CONNECTOR_RE, (v) => hasSize(v, 100)),
     lAngle: lookupItemQty(typeConfigs, row, L_ANGLE_ONLY_RE, null),
-    lAngleU: lookupVariantQty(typeConfigs, row, L_ANGLE_ONLY_RE, (l) => isVariantLetter(l, "U")),
-    lAngleV: lookupVariantQty(typeConfigs, row, L_ANGLE_ONLY_RE, (l) => isVariantLetter(l, "V")),
     nut: lookupItemQty(typeConfigs, row, NUT_RE, null),
     bolt: lookupItemQty(typeConfigs, row, BOLT_RE, null),
   }
@@ -584,9 +534,11 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     //   1. Type-config nutQty / boltQty (explicit override from the
     //      support-type editor — wins over everything else).
     //   2. Drawing-033764 formula:
-    //        (L ANGLE U qty × 2) + (L ANGLE V qty × 8)
-    //        + (SB-50 total × 4) + (SB-100 total × 8)
-    //      Plate state irrelevant for SB; NUT count mirrors BOLT.
+    //        (2 if any SB-50 on row, else 0)  ← L ANGLE U flat
+    //      + (8 if any SB-100 on row, else 0) ← L ANGLE V flat
+    //      + (SB-50 WP + WoP) × 4
+    //      + (SB-100 WP + WoP) × 8
+    //      NUT count mirrors BOLT.
     //   3. Routed total from the L_ANGLE_PROFILE flags (e.g., flag "NUT").
     //   4. Item lookup (NUT / BOLT items in the type's item list).
     const sbBolts = computeBoltsFromConfig(meta)
