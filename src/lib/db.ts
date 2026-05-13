@@ -41,6 +41,13 @@ async function runMigrations(): Promise<void> {
     `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS without_plate_qty TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS with_plate_qty TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS without_plate_qty TEXT NOT NULL DEFAULT ''`,
+    // NUT / BOLT qty TEXT columns — same shape as the plate qty columns,
+    // empty = column blank for this type, non-empty = use this qty in the
+    // External MTO Excel NUT / BOLT cells (overrides flag routing).
+    `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS nut_qty TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE master_types ADD COLUMN IF NOT EXISTS bolt_qty TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS nut_qty TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE project_support_types ADD COLUMN IF NOT EXISTS bolt_qty TEXT NOT NULL DEFAULT ''`,
     // One-time backfill: lift any per-item plate ticks up to the type level
     // so existing configs aren't visually reset to "all false". Gated by a
     // settings-row flag so subsequent ensureMigrations calls don't re-run
@@ -147,7 +154,7 @@ async function syncProjectTypesToMasterOnce(): Promise<void> {
     if (flagRows.length > 0) return
 
     const { rows: projTypes } = await pool.query(
-      `SELECT id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty
+      `SELECT id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty, nut_qty, bolt_qty
          FROM project_support_types`,
     )
     if (projTypes.length === 0) {
@@ -181,8 +188,8 @@ async function syncProjectTypesToMasterOnce(): Promise<void> {
     for (const pt of toCopy) {
       const newId = "mig_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
       await pool.query(
-        `INSERT INTO master_types (id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        `INSERT INTO master_types (id, type_name, classification, with_plate, without_plate, with_plate_qty, without_plate_qty, nut_qty, bolt_qty)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           newId,
           pt.type_name,
@@ -191,6 +198,8 @@ async function syncProjectTypesToMasterOnce(): Promise<void> {
           !!pt.without_plate,
           pt.with_plate_qty || "",
           pt.without_plate_qty || "",
+          pt.nut_qty || "",
+          pt.bolt_qty || "",
         ],
       )
       const { rows: items } = await pool.query(

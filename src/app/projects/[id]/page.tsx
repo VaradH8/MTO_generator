@@ -137,6 +137,11 @@ export default function ProjectDetailPage() {
      *  number in the row's With Plate / Without Plate column. */
     withPlate: string
     withoutPlate: string
+    /** Per-type NUT / BOLT qty for the External MTO Excel. Empty = leave
+     *  the cell blank (or use whatever the profile routing produced).
+     *  Non-empty = use this number directly and override profile routing. */
+    nutQty: string
+    boltQty: string
     items: TypeItemConfig[]
   }
   const [editingType, setEditingType] = useState<EditingTypeState | null>(null)
@@ -320,6 +325,8 @@ export default function ProjectDetailPage() {
           items: mt.items,
           withPlate: mt.withPlate,
           withoutPlate: mt.withoutPlate,
+          nutQty: mt.nutQty,
+          boltQty: mt.boltQty,
         }))
       const mergedExternalConfigs = [...projectExternal, ...masterExternalFallback]
       // L PROFILE total uses the project's mapping factors when set
@@ -386,6 +393,8 @@ export default function ProjectDetailPage() {
       classification: t.classification ?? "internal",
       withPlate: t.withPlate ?? "",
       withoutPlate: t.withoutPlate ?? "",
+      nutQty: t.nutQty ?? "",
+      boltQty: t.boltQty ?? "",
       items: t.items.map((i) => ({
         ...i,
         variants: i.variants ? i.variants.map((v) => ({ ...v })) : undefined,
@@ -401,6 +410,8 @@ export default function ProjectDetailPage() {
       classification: template?.classification ?? "internal",
       withPlate: template?.withPlate ?? "",
       withoutPlate: template?.withoutPlate ?? "",
+      nutQty: template?.nutQty ?? "",
+      boltQty: template?.boltQty ?? "",
       items: template
         ? template.items.map((i: MasterTypeItem) => ({
             itemId: i.itemId,
@@ -431,6 +442,8 @@ export default function ProjectDetailPage() {
       classification: editingType.classification,
       withPlate: editingType.withPlate.trim(),
       withoutPlate: editingType.withoutPlate.trim(),
+      nutQty: editingType.nutQty.trim(),
+      boltQty: editingType.boltQty.trim(),
       items: editingType.items,
     }
     const list = editingType.index === -1
@@ -698,6 +711,8 @@ export default function ProjectDetailPage() {
                   </StatusBadge>
                   {t.withPlate && <StatusBadge variant="info">With Plate: {t.withPlate}</StatusBadge>}
                   {t.withoutPlate && <StatusBadge variant="info">Without Plate: {t.withoutPlate}</StatusBadge>}
+                  {t.nutQty && <StatusBadge variant="info">NUT: {t.nutQty}</StatusBadge>}
+                  {t.boltQty && <StatusBadge variant="info">BOLT: {t.boltQty}</StatusBadge>}
                   <span style={{ flex: 1, minWidth: 200, fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
                     {itemSummary || <em style={{ color: "var(--color-text-faint)" }}>(no items)</em>}
                   </span>
@@ -1306,6 +1321,28 @@ export default function ProjectDetailPage() {
                       min="0"
                       value={editingType.withoutPlate}
                       onChange={(e) => setEditingType({ ...editingType, withoutPlate: e.target.value })}
+                      placeholder="—"
+                      style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                    />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                    NUT qty
+                    <input
+                      type="number"
+                      min="0"
+                      value={editingType.nutQty}
+                      onChange={(e) => setEditingType({ ...editingType, nutQty: e.target.value })}
+                      placeholder="—"
+                      style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                    />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                    BOLT qty
+                    <input
+                      type="number"
+                      min="0"
+                      value={editingType.boltQty}
+                      onChange={(e) => setEditingType({ ...editingType, boltQty: e.target.value })}
                       placeholder="—"
                       style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
                     />

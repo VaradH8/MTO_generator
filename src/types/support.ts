@@ -79,6 +79,13 @@ export interface MasterTypeConfig {
    *  per-row With Plate / Without Plate columns in the PDF and table. */
   withPlate?: string
   withoutPlate?: string
+  /** Per-type NUT / BOLT quantities for the External MTO Excel. Same shape
+   *  as the plate qtys: empty string = column renders blank for this type,
+   *  non-empty = that quantity is used as the NUT / BOLT cell value for
+   *  every row of this type. Overrides any L_ANGLE_PROFILE flag routing
+   *  that would otherwise land a length total in those columns. */
+  nutQty?: string
+  boltQty?: string
 }
 
 export interface MasterTypeItem {
@@ -121,6 +128,10 @@ export interface SupportTypeConfig {
    *  Plate" / "Without Plate" PDF + table columns. */
   withPlate?: string
   withoutPlate?: string
+  /** Per-type NUT / BOLT quantities for the External MTO Excel. When set,
+   *  overrides any L_ANGLE_PROFILE flag routing into those columns. */
+  nutQty?: string
+  boltQty?: string
 }
 
 export interface ItemConfig {

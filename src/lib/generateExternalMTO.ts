@@ -440,6 +440,13 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     const typeMapping = mapping[String(row.type ?? "").trim()]
     const sbSize = inferSbSize(row, profile)
     const meta = extractRowMeta(typeConfigs, row)
+    // Per-type NUT / BOLT qty configured in the support-type editor.
+    // When non-empty, these override anything the profile flag routing or
+    // item lookup would otherwise place in the NUT / BOLT cells — they're
+    // the user's explicit "this type always uses N nuts / M bolts" answer.
+    const tc = resolveTypeConfig(typeConfigs, row)
+    const configNutQty = String(tc?.nutQty ?? "").trim()
+    const configBoltQty = String(tc?.boltQty ?? "").trim()
 
     let lp50: string | number = ""
     let lp100: string | number = ""
@@ -500,11 +507,25 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     cells.push(meta.starter100Without || "")
     cells.push(meta.conn50 || "")
     cells.push(meta.conn100 || "")
-    // NUT / BOLT columns: routed total wins over the type-config qty
-    // (lets a type's L_ANGLE_PROFILE flag "NUT" steer the computed
-    // length total into the NUT column directly).
-    cells.push(nutRouted !== "" ? nutRouted : (meta.nut || ""))
-    cells.push(boltRouted !== "" ? boltRouted : (meta.bolt || ""))
+    // NUT / BOLT columns. Priority order:
+    //   1. Type-config nutQty / boltQty (explicit override from the
+    //      support-type editor — wins over everything else, including
+    //      L_ANGLE_PROFILE flag routing). This was the user-requested
+    //      behaviour: "Override profile routing" when the config has it.
+    //   2. Routed total from the L_ANGLE_PROFILE flags (e.g., flag "NUT").
+    //   3. Item lookup (NUT / BOLT items in the type's item list).
+    if (configNutQty !== "") {
+      const n = parseFloat(configNutQty)
+      cells.push(Number.isFinite(n) ? n : configNutQty)
+    } else {
+      cells.push(nutRouted !== "" ? nutRouted : (meta.nut || ""))
+    }
+    if (configBoltQty !== "") {
+      const n = parseFloat(configBoltQty)
+      cells.push(Number.isFinite(n) ? n : configBoltQty)
+    } else {
+      cells.push(boltRouted !== "" ? boltRouted : (meta.bolt || ""))
+    }
     cells.push(row.elevationX ?? "")
     cells.push(row.elevationY ?? "")
     cells.push(row.elevationZ ?? "")

@@ -410,12 +410,16 @@ export default function SettingsPage() {
   const [newTypeClassification, setNewTypeClassification] = useState<"internal" | "external">("internal")
   const [newTypeWithPlate, setNewTypeWithPlate] = useState("")
   const [newTypeWithoutPlate, setNewTypeWithoutPlate] = useState("")
+  const [newTypeNutQty, setNewTypeNutQty] = useState("")
+  const [newTypeBoltQty, setNewTypeBoltQty] = useState("")
   const [newTypeItems, setNewTypeItems] = useState<MasterTypeItem[]>([])
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null)
   const [editTypeName, setEditTypeName] = useState("")
   const [editTypeClassification, setEditTypeClassification] = useState<"internal" | "external">("internal")
   const [editTypeWithPlate, setEditTypeWithPlate] = useState("")
   const [editTypeWithoutPlate, setEditTypeWithoutPlate] = useState("")
+  const [editTypeNutQty, setEditTypeNutQty] = useState("")
+  const [editTypeBoltQty, setEditTypeBoltQty] = useState("")
   const [editTypeItems, setEditTypeItems] = useState<MasterTypeItem[]>([])
   const [confirmDeleteType, setConfirmDeleteType] = useState<string | null>(null)
   const [typeError, setTypeError] = useState("")
@@ -505,12 +509,14 @@ export default function SettingsPage() {
     const err = validateItemQtys(newTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    addMasterType({ typeName: newTypeName.trim(), classification: newTypeClassification, items: newTypeItems, withPlate: newTypeWithPlate.trim(), withoutPlate: newTypeWithoutPlate.trim() })
+    addMasterType({ typeName: newTypeName.trim(), classification: newTypeClassification, items: newTypeItems, withPlate: newTypeWithPlate.trim(), withoutPlate: newTypeWithoutPlate.trim(), nutQty: newTypeNutQty.trim(), boltQty: newTypeBoltQty.trim() })
     setAddingType(false)
     setNewTypeName("")
     setNewTypeClassification("internal")
     setNewTypeWithPlate("")
     setNewTypeWithoutPlate("")
+    setNewTypeNutQty("")
+    setNewTypeBoltQty("")
     setNewTypeItems([])
   }
 
@@ -522,6 +528,8 @@ export default function SettingsPage() {
     setEditTypeClassification(t.classification || "internal")
     setEditTypeWithPlate(t.withPlate ?? "")
     setEditTypeWithoutPlate(t.withoutPlate ?? "")
+    setEditTypeNutQty(t.nutQty ?? "")
+    setEditTypeBoltQty(t.boltQty ?? "")
     setEditTypeItems(t.items.map((i) => ({ ...i })))
   }
 
@@ -530,7 +538,7 @@ export default function SettingsPage() {
     const err = validateItemQtys(editTypeItems)
     if (err) { setTypeError(err); return }
     setTypeError("")
-    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), classification: editTypeClassification, items: editTypeItems, withPlate: editTypeWithPlate.trim(), withoutPlate: editTypeWithoutPlate.trim() })
+    updateMasterType(editingTypeId, { typeName: editTypeName.trim(), classification: editTypeClassification, items: editTypeItems, withPlate: editTypeWithPlate.trim(), withoutPlate: editTypeWithoutPlate.trim(), nutQty: editTypeNutQty.trim(), boltQty: editTypeBoltQty.trim() })
     setEditingTypeId(null)
   }
 
@@ -1092,6 +1100,28 @@ export default function SettingsPage() {
                     style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
                   />
                 </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                  NUT qty
+                  <input
+                    type="number"
+                    min="0"
+                    value={newTypeNutQty}
+                    onChange={(e) => setNewTypeNutQty(e.target.value)}
+                    placeholder="—"
+                    style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                  />
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                  BOLT qty
+                  <input
+                    type="number"
+                    min="0"
+                    value={newTypeBoltQty}
+                    onChange={(e) => setNewTypeBoltQty(e.target.value)}
+                    placeholder="—"
+                    style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                  />
+                </label>
               </div>
             </div>
             <label style={{ ...labelStyle, marginBottom: "var(--space-2)" }}>Select Items</label>
@@ -1154,6 +1184,28 @@ export default function SettingsPage() {
                             style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
                           />
                         </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                          NUT qty
+                          <input
+                            type="number"
+                            min="0"
+                            value={editTypeNutQty}
+                            onChange={(e) => setEditTypeNutQty(e.target.value)}
+                            placeholder="—"
+                            style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                          />
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-body)", fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>
+                          BOLT qty
+                          <input
+                            type="number"
+                            min="0"
+                            value={editTypeBoltQty}
+                            onChange={(e) => setEditTypeBoltQty(e.target.value)}
+                            placeholder="—"
+                            style={{ ...inputStyle, height: 28, width: 70, fontSize: "0.75rem", textAlign: "center" }}
+                          />
+                        </label>
                       </div>
                     </div>
                     <label style={{ ...labelStyle, marginBottom: "var(--space-2)" }}>Items</label>
@@ -1169,6 +1221,8 @@ export default function SettingsPage() {
                     <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 600, color: "var(--color-text)" }}>{mt.typeName}</span>
                     {mt.withPlate && <StatusBadge variant="info">With Plate: {mt.withPlate}</StatusBadge>}
                     {mt.withoutPlate && <StatusBadge variant="info">Without Plate: {mt.withoutPlate}</StatusBadge>}
+                    {mt.nutQty && <StatusBadge variant="info">NUT: {mt.nutQty}</StatusBadge>}
+                    {mt.boltQty && <StatusBadge variant="info">BOLT: {mt.boltQty}</StatusBadge>}
                     {mt.items.map((i) => {
                       const hasVars = i.variants && i.variants.length > 0
                       const label = hasVars
