@@ -276,33 +276,41 @@ interface RowMeta {
   conn50: number
   conn100: number
   lAngle: number
+  /** Qty from the L ANGLE item's variant labelled "U" (legend U on
+   *  drawing 033764 — the 50-side L ANGLE, S2N3501C, 2 bolts per piece).
+   *  Read directly from the variant qty entered in the type editor.
+   *  Empty/0 when the type doesn't pair with a U piece on this row. */
+  lAngleU: number
+  /** Qty from the L ANGLE item's variant labelled "V" (legend V on
+   *  drawing 033764 — the 100-side L ANGLE, S2N4501C, 8 bolts per piece). */
+  lAngleV: number
   nut: number
   bolt: number
 }
 
-/** Bolt counts from "Bolt details of external components" (drawing 033764
- *  SHT 0001). Two parts to the formula:
- *    - Flat additions (the L ANGLE U / V bolts that ship with every SB
- *      side once, regardless of how many SB pieces): 2 for the U-side
- *      when any SB-50 is present, 8 for the V-side when any SB-100 is
- *      present.
- *    - Per-bracket multipliers: 4 bolts for every SB-50 piece (with or
- *      without plate), 8 bolts for every SB-100 piece.
- *  NUT count mirrors BOLT in fabrication MTOs. Applied when the type
- *  config doesn't carry an explicit nutQty / boltQty override. */
-const L_ANGLE_U_FLAT = 2
-const L_ANGLE_V_FLAT = 8
+/** Bolt-per-piece counts from "Bolt details of external components"
+ *  (drawing 033764 SHT 0001):
+ *    - L ANGLE U (50) → 2 bolts each piece
+ *    - L ANGLE V (100) → 8 bolts each piece
+ *    - STARTER BRACKET-50 (any plate state) → 4 bolts each piece
+ *    - STARTER BRACKET-100 (any plate state) → 8 bolts each piece
+ *  NUT count mirrors BOLT in fabrication MTOs. The user-configured
+ *  nutQty / boltQty override (when set) replaces the L ANGLE
+ *  contribution; the SB per-piece total is always added on top. */
+const BOLTS_PER_L_ANGLE_U = 2
+const BOLTS_PER_L_ANGLE_V = 8
 const BOLTS_PER_SB_50 = 4
 const BOLTS_PER_SB_100 = 8
 
-/** Compute the BOLT / NUT cell value. The user-configured override (from
- *  the type editor's NUT qty / BOLT qty box) takes the place of the
- *  *flat* L ANGLE U/V addition only — it does NOT replace the per-piece
- *  SB multiplier. So config qty "2" with one SB-50 WoP = `2 + 1×4 = 6`,
- *  not just `2`. Empty config qty falls back to the drawing's default
- *  flats (2 when any SB-50 on the row, 8 when any SB-100). Returns
- *  null when there's no contribution at all and the caller should fall
- *  through to the legacy routed / item-lookup fallback. */
+/** Compute the BOLT / NUT cell value. L ANGLE U / V contributions scale
+ *  with their *variant qty* in the type's item config — so a type whose
+ *  L ANGLE item has variant "U" with qty 2 contributes 4 bolts (2 × 2),
+ *  while a type whose variant exists but with qty 0 contributes nothing.
+ *  The user-configured override (NUT qty / BOLT qty in the type editor)
+ *  replaces the L ANGLE contribution entirely but does NOT replace the
+ *  per-piece SB multiplier. Returns null when nothing contributes and
+ *  the caller should fall through to the legacy routed / item-lookup
+ *  fallback. */
 function computeBoltsCell(meta: RowMeta, override: string): number | null {
   const sb50 = (meta.starter50With || 0) + (meta.starter50Without || 0)
   const sb100 = (meta.starter100With || 0) + (meta.starter100Without || 0)
@@ -313,10 +321,53 @@ function computeBoltsCell(meta: RowMeta, override: string): number | null {
     const flat = Number.isFinite(n) ? n : 0
     return flat + sbBolts
   }
-  const defaultFlat = (sb50 > 0 ? L_ANGLE_U_FLAT : 0) + (sb100 > 0 ? L_ANGLE_V_FLAT : 0)
-  const total = defaultFlat + sbBolts
+  const lAngleBolts =
+    (meta.lAngleU || 0) * BOLTS_PER_L_ANGLE_U +
+    (meta.lAngleV || 0) * BOLTS_PER_L_ANGLE_V
+  const total = lAngleBolts + sbBolts
   return total > 0 ? total : null
 }
+
+/** Sum the qty for any variant on items matching `itemRe` whose label
+ *  matches `variantPredicate`. Falls back to row.itemQtys when nothing
+ *  matched in the type config. Returns 0 if nothing matches anywhere. */
+function lookupVariantQty(
+  typeConfigs: SupportTypeConfig[],
+  row: SupportRow,
+  itemRe: RegExp,
+  variantPredicate: (label: string) => boolean,
+): number {
+  const tc = resolveTypeConfig(typeConfigs, row)
+  if (tc) {
+    for (const item of tc.items) {
+      if (!itemRe.test(item.itemName)) continue
+      if (item.variants && item.variants.length > 0) {
+        for (const v of item.variants) {
+          if (variantPredicate(v.label)) {
+            const n = parseFloat(String(v.qty ?? "").trim())
+            if (Number.isFinite(n) && n > 0) return n
+          }
+        }
+      }
+    }
+  }
+  for (const [item, variants] of Object.entries(row.itemQtys ?? {})) {
+    if (!itemRe.test(item)) continue
+    for (const [variantLabel, qty] of Object.entries(variants)) {
+      if (variantPredicate(variantLabel)) {
+        const n = parseFloat(String(qty).trim())
+        if (Number.isFinite(n) && n > 0) return n
+      }
+    }
+  }
+  return 0
+}
+
+/** Match a variant label whose payload is a standalone letter (the
+ *  L ANGLE "U" / "V" legends on drawing 033764). Whole-token match so
+ *  "UV-50" or "ROUND" don't false-hit on "U". */
+const isVariantLetter = (label: string, letter: "U" | "V"): boolean =>
+  new RegExp(`(?:^|[^a-zA-Z0-9])${letter}(?:[^a-zA-Z0-9]|$)`, "i").test(label)
 
 function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowMeta {
   return {
@@ -327,6 +378,8 @@ function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowM
     conn50: lookupItemQty(typeConfigs, row, CONNECTOR_RE, (v) => hasSize(v, 50)),
     conn100: lookupItemQty(typeConfigs, row, CONNECTOR_RE, (v) => hasSize(v, 100)),
     lAngle: lookupItemQty(typeConfigs, row, L_ANGLE_ONLY_RE, null),
+    lAngleU: lookupVariantQty(typeConfigs, row, L_ANGLE_ONLY_RE, (l) => isVariantLetter(l, "U")),
+    lAngleV: lookupVariantQty(typeConfigs, row, L_ANGLE_ONLY_RE, (l) => isVariantLetter(l, "V")),
     nut: lookupItemQty(typeConfigs, row, NUT_RE, null),
     bolt: lookupItemQty(typeConfigs, row, BOLT_RE, null),
   }
@@ -570,14 +623,17 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     cells.push(meta.conn50 || "")
     cells.push(meta.conn100 || "")
     // NUT / BOLT columns. Order:
-    //   1. Compute (override-or-default flat) + SB-50 × 4 + SB-100 × 8.
-    //      The user-configured nutQty / boltQty REPLACES the flat 2/8
-    //      L ANGLE U/V addition but does NOT replace the per-piece SB
-    //      contribution — so override "2" on a row with one SB-50 WoP
-    //      produces 2 + 4 = 6, not just 2.
-    //   2. If the formula produced nothing (no override, no SB), fall
-    //      back to L_ANGLE_PROFILE flag-routed total, then the legacy
-    //      NUT / BOLT item lookup.
+    //   1. Compute L ANGLE U/V × per-piece bolts + SB-50/100 × per-piece
+    //      bolts. The L ANGLE contribution scales with the variant qty
+    //      entered in the type config, so a type with U qty=2 + 2 SB-50
+    //      pieces gives 2×2 + 2×4 = 12, while a type whose U variant qty
+    //      is 0 gives only the SB part.
+    //   2. The user-configured nutQty / boltQty override replaces the
+    //      L ANGLE contribution but does NOT replace the per-piece SB
+    //      contribution — override "2" on a row with one SB-50 WoP
+    //      produces 2 + 4 = 6.
+    //   3. If both come up zero, fall back to L_ANGLE_PROFILE flag-routed
+    //      total, then the legacy NUT / BOLT item lookup.
     const nutComputed = computeBoltsCell(meta, configNutQty)
     if (nutComputed !== null) {
       cells.push(nutComputed)
