@@ -105,6 +105,22 @@ function bodyStyle(zebra: boolean): CellStyle {
 
 /* ────────────────────────── value helpers ───────────────────────── */
 
+/** Render a value as a rounded integer string for the External MTO Excel.
+ *  Rules:
+ *    - empty / null / undefined → ""
+ *    - any string containing "*" (segment notation like "576*3") is
+ *      preserved verbatim — it isn't a single number, it encodes
+ *      n segments of x, and downstream consumers parse it that way.
+ *    - everything else is parsed and Math.round'd to a plain integer.
+ *  Non-numeric strings that aren't segment notation fall through as-is. */
+function renderInt(raw: unknown): string | number {
+  const s = String(raw ?? "").trim()
+  if (s === "") return ""
+  if (/\*/.test(s)) return s
+  const n = parseFloat(s)
+  return Number.isFinite(n) ? Math.round(n) : s
+}
+
 /** Parse a length cell that may be "x" or "x*n" (n segments of x).
  *  Returns total length contributed and segment count consumed. */
 function parseLengthCellSegments(raw: string): { total: number; segments: number } {
@@ -527,18 +543,26 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     // still parsed from uploads and held on the SupportRow — just not
     // rendered into the External MTO Excel.
     // Display the inferred SB SIZE — the explicit row value when set,
-    // otherwise the size implied by the profile's flag columns.
-    cells.push(sbSize)
+    // otherwise the size implied by the profile's flag columns. The
+    // "L ANGLE" route is a pure 50-side category (U / S2N3501C piece);
+    // the row's value still lands in the L ANGLE column, but the SB
+    // SIZE cell shows "50" since these brackets ARE 50-side. Per user
+    // request: when it's just an L ANGLE-only type with no plate
+    // variant, the SB SIZE column should read 50, not "L ANGLE".
+    cells.push(sbSize === "L ANGLE" ? "50" : sbSize)
     cells.push(row.type ?? "")
+    // Length cells: round to integer. parseLengthCellSegments below
+    // still handles the "576*3" segment syntax for downstream summing,
+    // but the visible cell value is always an integer per user request.
     for (const k of ["a", "b", "c", "d", "e", "f"] as const) {
-      cells.push(String(row.lengths?.[k] ?? ""))
+      cells.push(renderInt(row.lengths?.[k]))
     }
-    cells.push(lp50)
-    cells.push(lp100)
+    cells.push(renderInt(lp50))
+    cells.push(renderInt(lp100))
     // L ANGLE column: routed total wins over item qty (so a type whose
     // profile flag says "L ANGLE" displays the summed length here
     // rather than the configured L ANGLE item count).
-    cells.push(lAngleTotal !== "" ? lAngleTotal : (meta.lAngle || ""))
+    cells.push(renderInt(lAngleTotal !== "" ? lAngleTotal : (meta.lAngle || "")))
     cells.push(meta.starter50With || "")
     cells.push(meta.starter50Without || "")
     cells.push(meta.starter100With || "")
@@ -566,9 +590,9 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     } else {
       cells.push(boltRouted !== "" ? boltRouted : (meta.bolt || ""))
     }
-    cells.push(row.elevationX ?? "")
-    cells.push(row.elevationY ?? "")
-    cells.push(row.elevationZ ?? "")
+    cells.push(renderInt(row.elevationX))
+    cells.push(renderInt(row.elevationY))
+    cells.push(renderInt(row.elevationZ))
     cells.push(row.remarks ?? "")
     body.push(cells)
   }
