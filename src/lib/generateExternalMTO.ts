@@ -264,6 +264,21 @@ interface RowMeta {
   bolt: number
 }
 
+/** Bolt-per-bracket counts from "Bolt details of external components"
+ *  (drawing 033764 SHT 0001 — STARTER WITH/WITHOUT PLATE rows). Each
+ *  STARTER BRACKET-50 carries 4 bolts, each STARTER BRACKET-100 carries
+ *  8 bolts, with or without plate. NUT count mirrors BOLT in fabrication
+ *  MTOs. Used when the type config doesn't carry an explicit nutQty /
+ *  boltQty override. */
+const BOLTS_PER_SB_50 = 4
+const BOLTS_PER_SB_100 = 8
+
+function computeBoltsFromStarterBrackets(meta: RowMeta): number {
+  const sb50 = (meta.starter50With || 0) + (meta.starter50Without || 0)
+  const sb100 = (meta.starter100With || 0) + (meta.starter100Without || 0)
+  return sb50 * BOLTS_PER_SB_50 + sb100 * BOLTS_PER_SB_100
+}
+
 function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowMeta {
   return {
     starter50With: lookupItemQty(typeConfigs, row, STARTER_BRACKET_RE, (v) => hasSize(v, 50) && hasWithPlate(v)),
@@ -509,20 +524,26 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     cells.push(meta.conn100 || "")
     // NUT / BOLT columns. Priority order:
     //   1. Type-config nutQty / boltQty (explicit override from the
-    //      support-type editor — wins over everything else, including
-    //      L_ANGLE_PROFILE flag routing). This was the user-requested
-    //      behaviour: "Override profile routing" when the config has it.
-    //   2. Routed total from the L_ANGLE_PROFILE flags (e.g., flag "NUT").
-    //   3. Item lookup (NUT / BOLT items in the type's item list).
+    //      support-type editor — wins over everything else).
+    //   2. STARTER BRACKET-derived count (per drawing 033764 SHT 0001:
+    //      SB-50 = 4 bolts each, SB-100 = 8 bolts each, plate state
+    //      irrelevant). NUT count mirrors BOLT.
+    //   3. Routed total from the L_ANGLE_PROFILE flags (e.g., flag "NUT").
+    //   4. Item lookup (NUT / BOLT items in the type's item list).
+    const sbBolts = computeBoltsFromStarterBrackets(meta)
     if (configNutQty !== "") {
       const n = parseFloat(configNutQty)
       cells.push(Number.isFinite(n) ? n : configNutQty)
+    } else if (sbBolts > 0) {
+      cells.push(sbBolts)
     } else {
       cells.push(nutRouted !== "" ? nutRouted : (meta.nut || ""))
     }
     if (configBoltQty !== "") {
       const n = parseFloat(configBoltQty)
       cells.push(Number.isFinite(n) ? n : configBoltQty)
+    } else if (sbBolts > 0) {
+      cells.push(sbBolts)
     } else {
       cells.push(boltRouted !== "" ? boltRouted : (meta.bolt || ""))
     }
