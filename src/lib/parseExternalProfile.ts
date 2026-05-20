@@ -4,7 +4,7 @@ import type { ExternalTypeProfile } from "@/types/support"
  * Parse a `L_ANGLE_PROFILE`-style CSV into ExternalTypeProfile rows.
  *
  * Expected header (case-insensitive):
- *   TYPE, MEMBERS, A, B, C, D, E
+ *   TYPE, MEMBERS, A, B, C, D, E, F
  *
  * Rules:
  *   - TYPE and MEMBERS are required columns; any other column ordering is
@@ -35,7 +35,7 @@ export function parseExternalProfileCsv(text: string): ExternalTypeProfile[] {
   if (typeIdx < 0 || membersIdx < 0) {
     throw new Error("CSV must contain TYPE and MEMBERS columns")
   }
-  const aIdx = idx("a"), bIdx = idx("b"), cIdx = idx("c"), dIdx = idx("d"), eIdx = idx("e")
+  const aIdx = idx("a"), bIdx = idx("b"), cIdx = idx("c"), dIdx = idx("d"), eIdx = idx("e"), fIdx = idx("f")
   const cellAt = (cells: string[], i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "")
 
   const out: ExternalTypeProfile[] = []
@@ -53,6 +53,7 @@ export function parseExternalProfileCsv(text: string): ExternalTypeProfile[] {
       flagC: cellAt(cells, cIdx),
       flagD: cellAt(cells, dIdx),
       flagE: cellAt(cells, eIdx),
+      flagF: cellAt(cells, fIdx),
     })
   }
   return out

@@ -970,6 +970,7 @@ export default function SettingsPage() {
                     <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>C</th>
                     <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>D</th>
                     <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>E</th>
+                    <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center" }}>F</th>
                     <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)" }}>Imported</th>
                     <th style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)" }}></th>
                   </tr>
@@ -984,6 +985,7 @@ export default function SettingsPage() {
                       <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagC || "—"}</td>
                       <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagD || "—"}</td>
                       <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagE || "—"}</td>
+                      <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", textAlign: "center", color: "var(--color-text-muted)" }}>{p.flagF || "—"}</td>
                       <td style={{ padding: "var(--space-2) var(--space-3)", borderBottom: "1px solid var(--color-border)", color: "var(--color-text-muted)", fontSize: "0.75rem" }}>
                         {p.importedAt ? new Date(p.importedAt).toLocaleDateString() : "—"}
                         {p.importedBy && p.importedBy !== "unknown" ? ` · ${p.importedBy}` : ""}

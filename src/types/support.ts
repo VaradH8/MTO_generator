@@ -255,11 +255,18 @@ export interface ParseResult {
 export interface ExternalTypeProfile {
   typeName: string
   members: number
+  /** Per-length-letter routing flags. Each flag corresponds to a LENGTH
+   *  column (flagA → length A, … flagF → length F) and names which output
+   *  column that length feeds: "50" → L PROFILE-50, "100" → L PROFILE-100,
+   *  "L ANGLE" → L ANGLE column, "NUT" / "BOLT" → those columns, blank →
+   *  no contribution. The External MTO exporter sums each length (× its
+   *  Mapping factor) into the column its flag names. */
   flagA: string
   flagB: string
   flagC: string
   flagD: string
   flagE: string
+  flagF: string
   importedAt?: string
   importedBy?: string
 }

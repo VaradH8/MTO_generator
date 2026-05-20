@@ -404,6 +404,86 @@ function inferSbSize(row: SupportRow, profile: ExternalTypeProfile | undefined):
   return "50"
 }
 
+/* ───────────────────── per-letter L PROFILE routing ──────────────── */
+
+/** Result of routing each LENGTH letter (A..F) by its L_ANGLE_PROFILE
+ *  flag. Each bucket is the Σ of (length × Mapping factor) for the
+ *  letters whose flag names that destination. */
+interface ProfileRouting {
+  lp50: number
+  lp100: number
+  lAngle: number
+  nut: number
+  bolt: number
+  /** True when at least one length letter routed to a real destination. */
+  routed: boolean
+}
+
+const LENGTH_LETTERS = ["a", "b", "c", "d", "e", "f"] as const
+
+/** Route every LENGTH letter into its L PROFILE / L ANGLE / NUT / BOLT
+ *  bucket using the L_ANGLE_PROFILE per-letter flags. Each letter's
+ *  contribution is `length × Mapping factor` (factor defaults to 1 when
+ *  the type has no Mapping.xlsx factor for that letter). A length cell
+ *  like "576*3" parses with parseFloat → 576; the *N multiplier is
+ *  expected to be encoded as the Mapping factor instead. */
+function computeProfileRouting(
+  row: SupportRow,
+  profile: ExternalTypeProfile,
+  mapping: TypeMapping | undefined,
+): ProfileRouting {
+  const flagFor: Record<(typeof LENGTH_LETTERS)[number], string> = {
+    a: profile.flagA, b: profile.flagB, c: profile.flagC,
+    d: profile.flagD, e: profile.flagE, f: profile.flagF,
+  }
+  const out: ProfileRouting = { lp50: 0, lp100: 0, lAngle: 0, nut: 0, bolt: 0, routed: false }
+  for (const letter of LENGTH_LETTERS) {
+    const route = flagToRoute(flagFor[letter])
+    if (!route) continue
+    const cell = String(row.lengths?.[letter] ?? "").trim()
+    if (!cell) continue
+    const base = parseFloat(cell)
+    if (!Number.isFinite(base)) continue
+    const factor = mapping?.factors?.[letter] ?? 1
+    const contribution = base * factor
+    if (contribution === 0) continue
+    if (route === "50") out.lp50 += contribution
+    else if (route === "100") out.lp100 += contribution
+    else if (route === "L ANGLE") out.lAngle += contribution
+    else if (route === "NUT") out.nut += contribution
+    else if (route === "BOLT") out.bolt += contribution
+    else continue
+    out.routed = true
+  }
+  return out
+}
+
+/** Derive the SB SIZE label from a routing result: both 50 and 100
+ *  populated → "50/100"; only one side → that side; otherwise the first
+ *  non-empty special bucket. Returns null when nothing routed so the
+ *  caller can fall back to inferSbSize. */
+function sbSizeFromRouting(r: ProfileRouting): LpRoute | null {
+  const has50 = r.lp50 > 0
+  const has100 = r.lp100 > 0
+  if (has50 && has100) return "50/100"
+  if (has50) return "50"
+  if (has100) return "100"
+  if (r.lAngle > 0) return "L ANGLE"
+  if (r.nut > 0) return "NUT"
+  if (r.bolt > 0) return "BOLT"
+  return null
+}
+
+/** True when the profile carries at least one non-empty per-letter flag —
+ *  i.e. there's per-letter routing data to act on. */
+function profileHasFlags(profile: ExternalTypeProfile | undefined): boolean {
+  if (!profile) return false
+  return [
+    profile.flagA, profile.flagB, profile.flagC,
+    profile.flagD, profile.flagE, profile.flagF,
+  ].some((f) => String(f ?? "").trim() !== "")
+}
+
 /* ────────────────────────── sheet builder ───────────────────────── */
 
 // 26 columns after dropping DISCIPLINE from the rendered output. The
@@ -500,7 +580,16 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     const profile = profiles.get(String(row.type ?? "").trim())
     const members = profile?.members ?? 0
     const typeMapping = mapping[String(row.type ?? "").trim()]
-    const sbSize = inferSbSize(row, profile)
+    // Per-letter L PROFILE routing: when the profile carries per-letter
+    // flags, each LENGTH letter routes independently (A→100, B+C→50, …)
+    // and the row can fill both L PROFILE columns. Falls back to the
+    // legacy single-total + inferSbSize path when the type has no
+    // profile flags at all.
+    const routing = profileHasFlags(profile)
+      ? computeProfileRouting(row, profile!, typeMapping)
+      : null
+    const sbSize: LpRoute =
+      (routing && routing.routed && sbSizeFromRouting(routing)) || inferSbSize(row, profile)
     const meta = extractRowMeta(typeConfigs, row)
     // Per-type NUT / BOLT qty configured in the support-type editor.
     // When non-empty, these override anything the profile flag routing or
@@ -515,9 +604,18 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     let lAngleTotal: string | number = ""
     let nutRouted: string | number = ""
     let boltRouted: string | number = ""
-    // Mapping factors (when present) drive the total; otherwise we fall
-    // back to the profile's MEMBERS count.
-    if (typeMapping || members > 0) {
+    if (routing && routing.routed) {
+      // Per-letter routing: each bucket is already the Σ of its letters.
+      // A row can fill both L PROFILE columns at once.
+      if (routing.lp50 > 0) lp50 = roundDisplay(routing.lp50)
+      if (routing.lp100 > 0) lp100 = roundDisplay(routing.lp100)
+      if (routing.lAngle > 0) lAngleTotal = roundDisplay(routing.lAngle)
+      if (routing.nut > 0) nutRouted = roundDisplay(routing.nut)
+      if (routing.bolt > 0) boltRouted = roundDisplay(routing.bolt)
+    } else if (typeMapping || members > 0) {
+      // Legacy single-total path — no per-letter flags for this type.
+      // Mapping factors (when present) drive the total; otherwise we
+      // fall back to the profile's MEMBERS count.
       const computed = computeLProfileLength(row, typeMapping, members)
       if (computed > 0) {
         const rounded = roundDisplay(computed)

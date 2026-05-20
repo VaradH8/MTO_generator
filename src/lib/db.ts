@@ -127,6 +127,10 @@ async function runMigrations(): Promise<void> {
        imported_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
        imported_by  VARCHAR(100) NOT NULL DEFAULT 'unknown'
      )`,
+    // Sixth per-letter routing flag (length column F). Additive — existing
+    // profile rows default to '' which the exporter treats as "no
+    // contribution", so pre-F imports render exactly as before.
+    `ALTER TABLE external_type_profiles ADD COLUMN IF NOT EXISTS flag_f TEXT NOT NULL DEFAULT ''`,
   ]
   for (const sql of statements) {
     try {

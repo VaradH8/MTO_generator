@@ -9,6 +9,7 @@ interface ProfileRow {
   flag_c: string
   flag_d: string
   flag_e: string
+  flag_f: string
   imported_at: string
   imported_by: string
 }
@@ -36,7 +37,7 @@ export async function GET(_req: NextRequest) {
   await ensureMigrations()
   try {
     const { rows } = await pool.query<ProfileRow>(
-      `SELECT type_name, members, flag_a, flag_b, flag_c, flag_d, flag_e, imported_at, imported_by
+      `SELECT type_name, members, flag_a, flag_b, flag_c, flag_d, flag_e, flag_f, imported_at, imported_by
          FROM external_type_profiles
          ORDER BY type_name`,
     )
@@ -49,6 +50,7 @@ export async function GET(_req: NextRequest) {
         flagC: r.flag_c ?? "",
         flagD: r.flag_d ?? "",
         flagE: r.flag_e ?? "",
+        flagF: r.flag_f ?? "",
         importedAt: r.imported_at,
         importedBy: r.imported_by,
       })),
@@ -87,8 +89,8 @@ export async function POST(req: NextRequest) {
         const m = Math.max(0, Math.floor(Number(p?.members) || 0))
         await client.query(
           `INSERT INTO external_type_profiles
-             (type_name, members, flag_a, flag_b, flag_c, flag_d, flag_e, imported_at, imported_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+             (type_name, members, flag_a, flag_b, flag_c, flag_d, flag_e, flag_f, imported_at, imported_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9)
            ON CONFLICT (type_name) DO UPDATE SET
              members = EXCLUDED.members,
              flag_a = EXCLUDED.flag_a,
@@ -96,6 +98,7 @@ export async function POST(req: NextRequest) {
              flag_c = EXCLUDED.flag_c,
              flag_d = EXCLUDED.flag_d,
              flag_e = EXCLUDED.flag_e,
+             flag_f = EXCLUDED.flag_f,
              imported_at = EXCLUDED.imported_at,
              imported_by = EXCLUDED.imported_by`,
           [
@@ -106,6 +109,7 @@ export async function POST(req: NextRequest) {
             String(p?.flagC ?? ""),
             String(p?.flagD ?? ""),
             String(p?.flagE ?? ""),
+            String(p?.flagF ?? ""),
             requester,
           ],
         )
