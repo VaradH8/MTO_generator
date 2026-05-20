@@ -289,17 +289,27 @@ const BOLTS_PER_CONN_50 = 2
 const BOLTS_PER_CONN_100 = 8
 
 /** Compute the BOLT / NUT cell value:
- *    cell = (user-configured nutQty / boltQty; 0 if empty)
- *         + (SB-50 WP + WoP) × 4
- *         + (SB-100 WP + WoP) × 8
- *         + L ANGLE Connector contribution (multiplier follows the row's
- *           SB SIZE — SB-50 rows treat all connectors as 2 bolts each,
- *           SB-100 rows treat all connectors as 8 bolts each, and the
- *           split "50/100" SB SIZE uses each column's own multiplier).
+ *    cell = base + (type-config nutQty / boltQty; 0 if empty)
  *
- *  Returns null when nothing contributes so the caller can fall through
- *  to the legacy routed / item-lookup path. */
-function computeBoltsCell(meta: RowMeta, override: string, sbSize: LpRoute): number | null {
+ *  where `base` is whatever the row would produce WITHOUT the config:
+ *    - (SB-50 WP+WoP) × 4 + (SB-100 WP+WoP) × 8
+ *      + L ANGLE Connector × multiplier (×2 on a 50-side row, ×8 on a
+ *        100-side row, split per column on a 50/100 row), and
+ *    - if that's zero (no brackets / connectors on the row), the
+ *      per-letter routed total, then the legacy NUT/BOLT item lookup.
+ *
+ *  The type-config qty is ALWAYS added on top of `base` — never
+ *  replaces it. So a type whose base is 8 (from routing) shows 12 once
+ *  the user puts 4 in the config field. Types with the config left
+ *  empty are unaffected (base + 0 = base). Returns "" when the cell
+ *  should be blank (base and config both zero). */
+function computeBoltsCell(
+  meta: RowMeta,
+  override: string,
+  sbSize: LpRoute,
+  routed: string | number,
+  itemFallback: number,
+): number | string {
   const sb50 = (meta.starter50With || 0) + (meta.starter50Without || 0)
   const sb100 = (meta.starter100With || 0) + (meta.starter100Without || 0)
   const sbBolts = sb50 * BOLTS_PER_SB_50 + sb100 * BOLTS_PER_SB_100
@@ -316,14 +326,21 @@ function computeBoltsCell(meta: RowMeta, override: string, sbSize: LpRoute): num
     // but if they did the conservative ×2 keeps the cell finite.
     connectorBolts = (conn50 + conn100) * BOLTS_PER_CONN_50
   }
+  // Base = SB + Connector. When the row has neither, the base comes from
+  // the per-letter routed total (a length sum flagged "NUT"/"BOLT"),
+  // then the legacy NUT/BOLT item lookup.
+  let base = sbBolts + connectorBolts
+  if (base === 0) {
+    const routedN = typeof routed === "number" ? routed : parseFloat(String(routed).trim())
+    if (Number.isFinite(routedN) && routedN > 0) base = routedN
+    else if (itemFallback > 0) base = itemFallback
+  }
   const trimmedOverride = override.trim()
   const configBolts = trimmedOverride === ""
     ? 0
     : (Number.isFinite(parseFloat(trimmedOverride)) ? parseFloat(trimmedOverride) : 0)
-  const total = configBolts + sbBolts + connectorBolts
-  if (total > 0) return total
-  if (trimmedOverride !== "") return configBolts
-  return null
+  const total = base + configBolts
+  return total > 0 ? Math.round(total) : ""
 }
 
 function extractRowMeta(typeConfigs: SupportTypeConfig[], row: SupportRow): RowMeta {
@@ -676,28 +693,14 @@ function buildSheet({ rows, profiles, typeConfigs, mapping, projectName, hasLogo
     cells.push(meta.conn50 || "")
     cells.push(meta.conn100 || "")
     // NUT / BOLT columns:
-    //   cell = (NUT qty / BOLT qty from the type editor; 0 if empty)
-    //        + (SB-50 WP + SB-50 WoP) × 4
-    //        + (SB-100 WP + SB-100 WoP) × 8
-    //        + L ANGLE Connector × (2 if SB-50 row, 8 if SB-100 row,
-    //          50-col×2 + 100-col×8 if 50/100 row)
-    //
-    // SB and Connector contributions are computed automatically from
-    // the row data — the type-editor config field is only needed for
-    // special types whose total isn't fully captured by the formula
-    // (rare; most types come out right with config left blank).
-    const nutComputed = computeBoltsCell(meta, configNutQty, sbSize)
-    if (nutComputed !== null) {
-      cells.push(nutComputed)
-    } else {
-      cells.push(nutRouted !== "" ? nutRouted : (meta.nut || ""))
-    }
-    const boltComputed = computeBoltsCell(meta, configBoltQty, sbSize)
-    if (boltComputed !== null) {
-      cells.push(boltComputed)
-    } else {
-      cells.push(boltRouted !== "" ? boltRouted : (meta.bolt || ""))
-    }
+    //   cell = base + type-config NUT qty / BOLT qty
+    // where base is the SB + Connector total, or — when the row has
+    // neither — the per-letter routed total / NUT-BOLT item lookup.
+    // The config qty ALWAYS adds on top of base; a type whose base is
+    // 8 shows 12 once "4" is entered in the config field. Types with
+    // the config left blank are unaffected (base + 0 = base).
+    cells.push(computeBoltsCell(meta, configNutQty, sbSize, nutRouted, meta.nut || 0))
+    cells.push(computeBoltsCell(meta, configBoltQty, sbSize, boltRouted, meta.bolt || 0))
     cells.push(renderInt(row.elevationX))
     cells.push(renderInt(row.elevationY))
     cells.push(renderInt(row.elevationZ))
